@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "LocalAI Studio",
         "width": 1360,
         "height": 840,
