@@ -11,9 +11,9 @@
     "build:server": "tsc",
     "build:client": "vite build",
     "build": "tsc && vite build",
-    "tauri": "tauri",
-    "desktop:dev": "concurrently \"tsx watch src/index.ts\" \"tauri dev\"",
-    "desktop:build": "tauri build",
+    "tauri": "node scripts/run-desktop.js",
+    "desktop:dev": "node scripts/run-desktop.js dev",
+    "desktop:build": "node scripts/run-desktop.js build",
     "start": "node dist/index.js",
     "test": "tsx test/db.test.ts && tsx test/hardware.test.ts && tsx test/router.test.ts && tsx test/workspace.test.ts && tsx test/skills.test.ts && tsx test/api.test.ts && tsx test/auto-router.test.ts"
   },
