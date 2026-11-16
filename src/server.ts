@@ -15,6 +15,8 @@ import { ModelDownloaderService } from './model-downloader.js';
 import { AppUpdater } from './updater.js';
 import { exec } from 'node:child_process';
 import util from 'node:util';
+import os from 'node:os';
+import path from 'node:path';
 
 const execAsync = util.promisify(exec);
 
@@ -306,6 +308,66 @@ export function createServer(
     const repo = c.req.query('repo') || 'LocalAI';
     const updateInfo = await AppUpdater.checkForUpdates(owner, repo);
     return c.json(updateInfo);
+  });
+
+  // 10. Native OS Folder Picker & Common Paths
+  app.post('/api/dialog/pick-folder', async (c) => {
+    try {
+      const psScript = `[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Select Project Folder'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }`;
+      const { stdout } = await execAsync(`powershell -Sta -NoProfile -Command "${psScript}"`, {
+        timeout: 120000,
+      });
+      const selected = stdout.trim();
+      if (selected) {
+        return c.json({ path: selected, name: path.basename(selected) });
+      }
+      return c.json({ path: null });
+    } catch (err: any) {
+      return c.json({ error: err.message, path: null }, 500);
+    }
+  });
+
+  app.get('/api/dialog/system-folders', (c) => {
+    const home = os.homedir();
+    return c.json({
+      current: process.cwd(),
+      home,
+      desktop: path.join(home, 'Desktop'),
+      documents: path.join(home, 'Documents'),
+      models: path.join(process.cwd(), 'models'),
+    });
+  });
+
+  // 11. Open in Windows Explorer
+  app.post('/api/dialog/open-folder', async (c) => {
+    try {
+      const body = await c.req.json();
+      const folderPath = body.path || process.cwd();
+      if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+      }
+      await execAsync(`explorer "${folderPath}"`);
+      return c.json({ success: true, opened: folderPath });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // 12. Clear Cache & Temp Logs
+  app.post('/api/app/clear-cache', (c) => {
+    try {
+      const tempDirs = [path.join(process.cwd(), '.tmp')];
+      let clearedFiles = 0;
+      for (const dir of tempDirs) {
+        if (fs.existsSync(dir)) {
+          fs.rmSync(dir, { recursive: true, force: true });
+          clearedFiles++;
+        }
+      }
+      return c.json({ success: true, clearedCount: clearedFiles, message: 'App cache & temp files cleared.' });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
   });
 
   return app;

@@ -38,8 +38,6 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectModel,
   onToggleRightSidebar,
 }) => {
-  const [showProviderMenu, setShowProviderMenu] = useState(false);
-
   // VRAM calculation for GTX 1650
   const vramUsedGb = hardwareStats ? (hardwareStats.vramUsedMb / 1024).toFixed(1) : '0.3';
   const vramTotalGb = hardwareStats ? (hardwareStats.vramTotalMb / 1024).toFixed(1) : '4.0';
@@ -71,66 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* 2. Center: Quick Provider & Engine Indicator */}
-      <div className="flex items-center space-x-2">
-        <div className="relative">
-          <button
-            onClick={() => setShowProviderMenu(!showProviderMenu)}
-            className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] text-xs transition-all duration-150 shadow-inner group"
-          >
-            {activeProvider?.type === 'llama-server' ? (
-              <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            ) : (
-              <Globe className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-            )}
-            <span className="font-semibold text-gray-200 group-hover:text-white">
-              {activeProvider ? activeProvider.name.split('(')[0] : 'Select Engine'}
-            </span>
-            <span className="text-gray-600">/</span>
-            <span className="text-sky-400 font-mono text-[11px] truncate max-w-[160px]">
-              {activeProvider?.selectedModel || 'Default Model'}
-            </span>
-            <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0 ml-0.5" />
-          </button>
-
-          {showProviderMenu && (
-            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-slide-up backdrop-blur-xl">
-              <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-[#30363d] pb-1">
-                Switch Inference Provider
-              </div>
-              {providers.map((p) => {
-                const isSelected = activeProvider?.id === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      onSwitchProvider(p.id);
-                      setShowProviderMenu(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs text-left transition-colors ${
-                      isSelected ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' : 'text-gray-300 hover:bg-[#21262d]'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2 truncate">
-                      {p.type === 'llama-server' ? (
-                        <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      ) : (
-                        <Globe className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                      )}
-                      <span className="font-medium truncate">{p.name}</span>
-                    </div>
-                    <span className="text-[10px] text-gray-500 font-mono shrink-0 ml-2">
-                      {p.selectedModel.split('-')[0]}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 3. Right: Hardware HUD & Panel Controls */}
+      {/* 2. Right: Hardware HUD & Panel Controls */}
       <div className="flex items-center space-x-2.5">
         {/* Hardware Status Capsule (GTX 1650 VRAM Gauge) */}
         <div

@@ -58,8 +58,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [text, setText] = useState('');
   const [attachedImage, setAttachedImage] = useState<{ name: string; dataUrl: string } | null>(null);
-  const [showSkillPopup, setShowSkillPopup] = useState(false);
-  const [showFilePopup, setShowFilePopup] = useState(false);
+  const [autocompleteMode, setAutocompleteMode] = useState<'skill' | 'file' | null>(null);
+  const [autocompleteQuery, setAutocompleteQuery] = useState('');
   const [showProviderMenu, setShowProviderMenu] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
@@ -77,6 +77,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   collectFiles(fileTree);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      setAutocompleteMode(null);
+      setShowProviderMenu(false);
+      setShowModelMenu(false);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -91,8 +97,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onSendMessage(finalPrompt, !!attachedImage);
     setText('');
     setAttachedImage(null);
-    setShowSkillPopup(false);
-    setShowFilePopup(false);
+    setAutocompleteMode(null);
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -112,33 +117,46 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const val = e.target.value;
     setText(val);
 
-    if (val.startsWith('/') && !val.includes(' ')) {
-      setShowSkillPopup(true);
-    } else {
-      setShowSkillPopup(false);
-    }
+    // Exact word-based autocomplete: only active when word begins with / or @ until a space is entered
+    const cursor = e.target.selectionStart || val.length;
+    const textBeforeCursor = val.slice(0, cursor);
+    const lastWordMatch = textBeforeCursor.match(/(?:^|\s)([/@])([^\s]*)$/);
 
-    const words = val.split(/\s+/);
-    const lastWord = words[words.length - 1];
-    if (lastWord.startsWith('@')) {
-      setShowFilePopup(true);
+    if (lastWordMatch) {
+      const trigger = lastWordMatch[1];
+      const query = lastWordMatch[2] || '';
+      if (trigger === '/') {
+        setAutocompleteMode('skill');
+        setAutocompleteQuery(query.toLowerCase());
+      } else if (trigger === '@') {
+        setAutocompleteMode('file');
+        setAutocompleteQuery(query.toLowerCase());
+      }
     } else {
-      setShowFilePopup(false);
+      setAutocompleteMode(null);
+      setAutocompleteQuery('');
     }
   };
 
   const selectSkill = (trigger: string) => {
-    setText(`${trigger} `);
-    setShowSkillPopup(false);
+    // Replace the current /query token with the chosen skill trigger
+    const cursor = textareaRef.current?.selectionStart || text.length;
+    const textBeforeCursor = text.slice(0, cursor);
+    const textAfterCursor = text.slice(cursor);
+    const replaced = textBeforeCursor.replace(/(?:^|\s)\/[^\s]*$/, (m) => (m.startsWith(' ') ? ` ${trigger} ` : `${trigger} `));
+    setText(replaced + textAfterCursor);
+    setAutocompleteMode(null);
     textareaRef.current?.focus();
   };
 
   const selectFile = (filePath: string) => {
-    const words = text.split(/\s+/);
-    words.pop();
-    words.push(`@${filePath} `);
-    setText(words.join(' '));
-    setShowFilePopup(false);
+    // Replace the current @query token with the chosen @file
+    const cursor = textareaRef.current?.selectionStart || text.length;
+    const textBeforeCursor = text.slice(0, cursor);
+    const textAfterCursor = text.slice(cursor);
+    const replaced = textBeforeCursor.replace(/(?:^|\s)@[^\s]*$/, (m) => (m.startsWith(' ') ? ` @${filePath} ` : `@${filePath} `));
+    setText(replaced + textAfterCursor);
+    setAutocompleteMode(null);
     textareaRef.current?.focus();
   };
 
@@ -147,50 +165,68 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   return (
     <div className="relative w-full">
       {/* 1. Skill Suggestions Popup */}
-      {showSkillPopup && (
+      {autocompleteMode === 'skill' && (
         <div className="absolute bottom-full left-0 mb-3 w-84 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-slide-up backdrop-blur-xl">
-          <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex items-center space-x-1.5 border-b border-[#30363d] pb-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-sky-400" />
-            <span>Select Local Skill (Slash Command)</span>
+          <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex items-center justify-between border-b border-[#30363d] pb-1.5">
+            <div className="flex items-center space-x-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+              <span>Select Skill (/{autocompleteQuery})</span>
+            </div>
+            <span className="text-[9px] text-gray-500 font-mono">Space to cancel</span>
           </div>
           <div className="max-h-56 overflow-y-auto space-y-1">
-            {availableSkills.filter((s) => s.enabled).map((skill) => (
-              <button
-                key={skill.id}
-                onClick={() => selectSkill(skill.triggers[0])}
-                className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-[#21262d] text-left text-xs transition-colors group"
-              >
-                <div>
-                  <span className="font-semibold text-sky-400 font-mono group-hover:underline">
-                    {skill.triggers[0]}
-                  </span>
-                  <p className="text-[11px] text-gray-400 truncate max-w-[240px] mt-0.5">
-                    {skill.description}
-                  </p>
-                </div>
-              </button>
-            ))}
+            {availableSkills
+              .filter((s) => s.enabled)
+              .filter((s) => {
+                if (!autocompleteQuery) return true;
+                return (
+                  s.triggers.some((t) => t.toLowerCase().includes(autocompleteQuery)) ||
+                  s.name.toLowerCase().includes(autocompleteQuery)
+                );
+              })
+              .map((skill) => (
+                <button
+                  key={skill.id}
+                  onClick={() => selectSkill(skill.triggers[0])}
+                  className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-[#21262d] text-left text-xs transition-colors group"
+                >
+                  <div>
+                    <span className="font-semibold text-sky-400 font-mono group-hover:underline">
+                      {skill.triggers[0]}
+                    </span>
+                    <p className="text-[11px] text-gray-400 truncate max-w-[240px] mt-0.5">
+                      {skill.description}
+                    </p>
+                  </div>
+                </button>
+              ))}
           </div>
         </div>
       )}
 
       {/* 2. File Suggestions Popup (@) */}
-      {showFilePopup && (
+      {autocompleteMode === 'file' && (
         <div className="absolute bottom-full left-0 mb-3 w-80 max-h-56 overflow-y-auto bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-slide-up backdrop-blur-xl">
-          <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex items-center space-x-1.5 border-b border-[#30363d] pb-1.5">
-            <FileText className="w-3.5 h-3.5 text-amber-400" />
-            <span>Reference Project File (@)</span>
+          <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex items-center justify-between border-b border-[#30363d] pb-1.5">
+            <div className="flex items-center space-x-1.5">
+              <FileText className="w-3.5 h-3.5 text-amber-400" />
+              <span>Reference File (@{autocompleteQuery})</span>
+            </div>
+            <span className="text-[9px] text-gray-500 font-mono">Space to cancel</span>
           </div>
-          {flatFiles.slice(0, 12).map((file) => (
-            <button
-              key={file}
-              onClick={() => selectFile(file)}
-              className="w-full flex items-center space-x-2 p-1.5 rounded-md hover:bg-[#21262d] text-left text-xs text-gray-200 transition-colors font-mono truncate"
-            >
-              <Paperclip className="w-3 h-3 text-gray-400 shrink-0" />
-              <span className="truncate">{file}</span>
-            </button>
-          ))}
+          {flatFiles
+            .filter((f) => !autocompleteQuery || f.toLowerCase().includes(autocompleteQuery))
+            .slice(0, 15)
+            .map((file) => (
+              <button
+                key={file}
+                onClick={() => selectFile(file)}
+                className="w-full flex items-center space-x-2 p-1.5 rounded-md hover:bg-[#21262d] text-left text-xs text-gray-200 transition-colors font-mono truncate"
+              >
+                <Paperclip className="w-3 h-3 text-gray-400 shrink-0" />
+                <span className="truncate">{file}</span>
+              </button>
+            ))}
         </div>
       )}
 
@@ -311,9 +347,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
           {/* Right Toolbar: Provider | Model | Send */}
           <div className="flex items-center space-x-1.5 relative">
+            {/* Backdrop for Popups */}
+            {(showProviderMenu || showModelMenu) && (
+              <div
+                className="fixed inset-0 z-40 cursor-default"
+                onClick={() => {
+                  setShowProviderMenu(false);
+                  setShowModelMenu(false);
+                }}
+              />
+            )}
+
             {/* 1. Provider Selector Pill */}
             {providers.length > 0 && onSwitchProvider && (
-              <div className="relative">
+              <div className="relative z-50">
                 <button
                   type="button"
                   onClick={() => {
@@ -372,7 +419,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             {/* 2. Model / Auto-Route Selector Pill */}
             {onSelectModel && (
-              <div className="relative">
+              <div className="relative z-50">
                 <button
                   type="button"
                   onClick={() => {
@@ -405,7 +452,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         type="text"
                         value={modelSearch}
                         onChange={(e) => setModelSearch(e.target.value)}
-                        placeholder="Tìm hoặc gõ model..."
+                        placeholder={`Search ${activeProvider?.name.split('(')[0].trim() || ''} models...`}
                         className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg pl-7 pr-2.5 py-1 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500/80"
                         autoFocus
                       />
@@ -433,42 +480,52 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         {isAutoRoute && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
                       </button>
 
-                      <div className="px-2 py-0.5 text-[9px] font-semibold text-gray-500 uppercase tracking-wider">
-                        Quick Models
+                      {/* Header for models of selected provider */}
+                      <div className="px-2 py-0.5 text-[9px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between border-t border-[#30363d]/50 pt-1.5 mt-1">
+                        <span>{activeProvider?.name.split('(')[0].trim() || 'Selected Provider'} Models</span>
+                        <span className="font-mono text-gray-500 text-[9px]">
+                          {(activeProvider?.models || []).length} available
+                        </span>
                       </div>
 
-                      {[
-                        { name: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf', label: '⚡ Qwen-3B (Fast)', icon: <Zap className="w-3 h-3 text-amber-400" /> },
-                        { name: 'Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf', label: '💻 Coder-7B (Code Specialist)', icon: <Code2 className="w-3 h-3 text-sky-400" /> },
-                        { name: 'DeepSeek-R1-Distill-Qwen-8B-Q4_K_M.gguf', label: '🧠 DeepSeek-R1 (Reasoning)', icon: <Brain className="w-3 h-3 text-purple-400" /> },
-                        { name: 'Qwen2-VL-7B-Instruct-Q4_K_M.gguf', label: '👁️ Qwen2-VL (Vision Multimodal)', icon: <Eye className="w-3 h-3 text-emerald-400" /> },
-                        { name: 'llama-3.3-70b-instruct', label: '🌐 FreeLLM Cloud (70B)', icon: <Globe className="w-3 h-3 text-cyan-400" /> },
-                      ]
-                        .filter((m) => m.label.toLowerCase().includes(modelSearch.toLowerCase()) || m.name.toLowerCase().includes(modelSearch.toLowerCase()))
+                      {/* Only list models belonging to active provider */}
+                      {(activeProvider?.models || [])
+                        .filter((m) => !modelSearch || m.toLowerCase().includes(modelSearch.toLowerCase()))
                         .map((m) => {
-                          const isCur = !isAutoRoute && activeModelName === m.name;
+                          const isCur = !isAutoRoute && activeModelName === m;
                           return (
                             <button
-                              key={m.name}
+                              key={m}
                               type="button"
                               onClick={() => {
-                                onSelectModel(m.name, false);
+                                onSelectModel(m, false);
                                 setShowModelMenu(false);
                               }}
-                              className={`w-full flex items-center justify-between p-1.5 rounded-lg text-left text-xs transition-colors ${
+                              className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors ${
                                 isCur ? 'bg-sky-500/15 text-sky-400 font-semibold border border-sky-500/30' : 'text-gray-300 hover:bg-[#21262d]'
                               }`}
                             >
                               <div className="flex items-center space-x-1.5 truncate">
-                                {m.icon}
-                                <span className="truncate">{m.label}</span>
+                                {activeProvider?.type === 'llama-server' ? (
+                                  <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+                                ) : (
+                                  <Globe className="w-3 h-3 text-sky-400 shrink-0" />
+                                )}
+                                <span className="truncate font-mono text-[11px]">{m}</span>
                               </div>
                               {isCur && <Check className="w-3 h-3 text-sky-400 shrink-0" />}
                             </button>
                           );
                         })}
 
-                      {/* Custom typed model if filtered */}
+                      {/* If no matching model in provider list */}
+                      {(activeProvider?.models || []).filter((m) => !modelSearch || m.toLowerCase().includes(modelSearch.toLowerCase())).length === 0 && (
+                        <div className="p-2 text-center text-[10px] text-gray-500 font-mono">
+                          No matching models in {activeProvider?.name.split('(')[0].trim()}
+                        </div>
+                      )}
+
+                      {/* Custom typed model if user types something not in list */}
                       {modelSearch.trim() && (
                         <button
                           type="button"
@@ -476,7 +533,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                             onSelectModel(modelSearch.trim(), false);
                             setShowModelMenu(false);
                           }}
-                          className="w-full p-2 text-left text-xs text-sky-400 hover:bg-[#21262d] rounded-lg border border-dashed border-sky-500/30"
+                          className="w-full p-2 text-left text-xs text-sky-400 hover:bg-[#21262d] rounded-lg border border-dashed border-sky-500/30 mt-1"
                         >
                           Dùng model tùy chỉnh: "{modelSearch.trim()}"
                         </button>

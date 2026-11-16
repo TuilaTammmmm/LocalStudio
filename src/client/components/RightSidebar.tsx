@@ -28,7 +28,7 @@ interface RightSidebarProps {
   fileTree: FileNode[];
   pinnedFiles: string[];
   isOpen: boolean;
-  onToggle: () => void;
+  onToggle?: () => void;
   onTogglePinFile: (relativePath: string) => void;
   onUpdateSystemPrompt: (prompt: string) => void;
 }
@@ -156,7 +156,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       />
 
       {/* 1. Header */}
-      <div className="p-3 border-b border-white/10 flex items-center justify-between">
+      <div className="p-2.5 px-3 border-b border-white/10 flex items-center justify-between relative z-30 bg-black/20">
         <div className="flex items-center space-x-2 truncate">
           <Layers className="w-4 h-4 text-sky-400 shrink-0" />
           <span className="font-bold text-xs tracking-wide text-white truncate">
@@ -164,85 +164,106 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           </span>
           <span className="text-[10px] text-gray-500 font-mono">({width}px)</span>
         </div>
-        <button
-          onClick={onToggle}
-          title="Collapse Tools Panel"
-          className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
-        >
-          <PanelRightClose className="w-4 h-4" />
-        </button>
+
+        <div className="text-[10px] text-gray-400 font-mono">
+          {openTabs.length} open {openTabs.length === 1 ? 'tool' : 'tools'}
+        </div>
       </div>
 
-      {/* 2. Dynamic Open Tabs Bar with [+] Always Available */}
-      <div className="flex items-center border-b border-white/10 bg-black/25 text-xs px-2 py-1 space-x-1 overflow-x-auto relative">
+      {/* 2. Dynamic Open Tabs Bar with [+] Add Tool Button */}
+      <div className="flex items-center border-b border-white/10 bg-black/40 text-xs px-2 py-1.5 space-x-1.5 overflow-x-auto relative z-40">
         {openTabs.map((tabId) => {
           const tool = ALL_TOOLS.find((t) => t.id === tabId);
           if (!tool) return null;
           const isCur = activeTab === tabId;
           return (
-            <button
+            <div
               key={tabId}
               onClick={() => setActiveTab(tabId)}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all group shrink-0 ${
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all group shrink-0 cursor-pointer select-none ${
                 isCur
-                  ? 'bg-white/10 text-white border border-white/15 shadow-sm'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'
+                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.05] border border-transparent'
               }`}
             >
               {tool.icon}
-              <span>{tool.label}</span>
+              <span className="font-semibold">{tool.label}</span>
               {tabId === 'files' && pinnedFiles.length > 0 && (
-                <span className="bg-sky-500/20 text-sky-400 text-[9px] px-1 rounded-full font-mono">
+                <span className="bg-sky-500/30 text-sky-300 text-[9px] px-1 rounded-full font-mono">
                   {pinnedFiles.length}
                 </span>
               )}
-              <span
+              <button
+                type="button"
                 onClick={(e) => closeToolTab(tabId, e)}
                 title="Đóng tab này"
                 className="hover:text-red-400 hover:bg-white/10 rounded-full p-0.5 ml-0.5 opacity-60 group-hover:opacity-100 transition-opacity"
               >
-                <X className="w-2.5 h-2.5" />
-              </span>
-            </button>
+                <X className="w-3 h-3" />
+              </button>
+            </div>
           );
         })}
 
-        {/* [+] Add / Switch Tool Button */}
+        {/* [+] Add Tool Trigger with Anchor Dropdown */}
         <div className="relative shrink-0">
           <button
+            type="button"
             onClick={() => setShowAddMenu(!showAddMenu)}
-            title="Mở thêm công cụ (Files, Terminal, Browser, RAG, Prompt)"
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/25 text-xs font-semibold transition-colors"
+            title="Thêm công cụ mới vào panel (+)"
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-all shadow-sm"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span className="text-[11px]">Tool</span>
+            <span className="text-[11px] font-bold">Tool</span>
+            <ChevronDown className="w-3 h-3 text-sky-400" />
           </button>
 
           {showAddMenu && (
-            <div className="absolute top-full left-0 mt-1.5 w-48 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-1.5 space-y-1 animate-slide-up backdrop-blur-xl">
-              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-[#30363d] pb-1">
-                Open Workspace Tool
+            <>
+              {/* Invisible Click-outside Backdrop */}
+              <div
+                className="fixed inset-0 z-40 cursor-default"
+                onClick={() => setShowAddMenu(false)}
+              />
+
+              {/* Menu Popup */}
+              <div className="absolute top-full left-0 mt-1 w-56 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-1.5 space-y-1 animate-slide-up backdrop-blur-xl">
+                <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-[#30363d] pb-1 flex items-center justify-between">
+                  <span>Available Tools</span>
+                  <span className="text-[9px] text-gray-500">Click to open</span>
+                </div>
+                {ALL_TOOLS.map((t) => {
+                  const isOpen = openTabs.includes(t.id);
+                  const isCur = activeTab === t.id && isOpen;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => openToolTab(t.id)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
+                        isCur
+                          ? 'bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30'
+                          : 'text-gray-300 hover:bg-[#21262d]'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 truncate">
+                        {t.icon}
+                        <span className="truncate">{t.label}</span>
+                      </div>
+                      {isOpen ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono">
+                          Open
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-sky-400 font-bold flex items-center">
+                          <Plus className="w-3 h-3 mr-0.5" /> Add
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-              {ALL_TOOLS.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => openToolTab(t.id)}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
-                    activeTab === t.id && openTabs.includes(t.id)
-                      ? 'bg-sky-500/15 text-sky-400 font-semibold'
-                      : 'text-gray-300 hover:bg-[#21262d]'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2">
-                    {t.icon}
-                    <span>{t.label}</span>
-                  </div>
-                  {openTabs.includes(t.id) && (
-                    <span className="text-[9px] text-gray-500 font-mono">Open</span>
-                  )}
-                </button>
-              ))}
-            </div>
+            </>
           )}
         </div>
       </div>
