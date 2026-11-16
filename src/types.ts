@@ -48,6 +48,10 @@ export interface ProviderConfig {
   customHeaders?: Record<string, string>;
   isDefault: boolean;
   enabled: boolean;
+  gpuLayers?: number;
+  contextSize?: number;
+  cpuThreads?: number;
+  flashAttention?: boolean;
 }
 
 export interface LocalSkill {

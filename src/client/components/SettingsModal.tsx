@@ -72,14 +72,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Model Hub & Downloader state inside Settings
   const [hubModels, setHubModels] = useState<EnrichedModelItem[]>([]);
   const [modelSearch, setModelSearch] = useState('');
+  const [modelHubSubTab, setModelHubSubTab] = useState<'catalog' | 'tuner'>('catalog');
   const [selectedHubModel, setSelectedHubModel] = useState<EnrichedModelItem | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-  // Sliders for selected model
+  // Sliders for selected model (CUDA, Context, Threads, Flash Attention)
   const [gpuLayers, setGpuLayers] = useState(21);
   const [contextSize, setContextSize] = useState(4096);
+  const [cpuThreads, setCpuThreads] = useState(4);
   const [flashAttention, setFlashAttention] = useState(true);
+  const [tuneApplied, setTuneApplied] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -144,6 +147,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }, 700);
     } catch {
       setDownloadingId(null);
+    }
+  };
+
+  const handleApplyTuning = () => {
+    const llamaProvider = providers.find((p) => p.type === 'llama-server') || currentProvider;
+    if (llamaProvider && selectedHubModel) {
+      const updated: ProviderConfig = {
+        ...llamaProvider,
+        selectedModel: selectedHubModel.filename,
+        gpuLayers,
+        contextSize,
+        cpuThreads,
+        flashAttention,
+      };
+      onSaveProvider(updated);
+      setTuneApplied(true);
+      setTimeout(() => setTuneApplied(false), 2500);
     }
   };
 
@@ -305,84 +325,291 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* 2. MODEL HUB & LIBRARY (LM Studio style inside settings) */}
+            {/* 2. MODEL HUB & GGUF TUNER (LM Studio style inside settings) */}
             {activeCategory === 'models' && (
               <div className="space-y-4 animate-fade-in">
-                {/* Search */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={modelSearch}
-                    onChange={(e) => setModelSearch(e.target.value)}
-                    placeholder="Search Hugging Face GGUF models..."
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-gray-200 text-xs focus:outline-none focus:border-sky-500"
-                  />
-                  <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                {/* Sub-tab Switcher: Catalog vs CUDA Tuner */}
+                <div className="flex items-center space-x-2 border-b border-white/10 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => setModelHubSubTab('catalog')}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                      modelHubSubTab === 'catalog'
+                        ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+                        : 'text-gray-400 hover:text-white hover:bg-white/[0.05]'
+                    }`}
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>Model Catalog & Downloads</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setModelHubSubTab('tuner')}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                      modelHubSubTab === 'tuner'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                        : 'text-gray-400 hover:text-white hover:bg-white/[0.05]'
+                    }`}
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>GGUF & CUDA Parameter Tuner</span>
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
-                  {hubModels
-                    .filter((m) => m.name.toLowerCase().includes(modelSearch.toLowerCase()))
-                    .map((m) => {
-                      const isDownloading = downloadingId === m.id;
-                      const progress = downloadProgress[m.id] || 0;
-                      const isComplete = progress === 100;
+                {/* VIEW 1: CATALOG & DOWNLOADS */}
+                {modelHubSubTab === 'catalog' && (
+                  <div className="space-y-3">
+                    {/* Search */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={modelSearch}
+                        onChange={(e) => setModelSearch(e.target.value)}
+                        placeholder="Search Hugging Face GGUF models..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-gray-200 text-xs focus:outline-none focus:border-sky-500"
+                      />
+                      <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    </div>
 
-                      return (
-                        <div
-                          key={m.id}
-                          className="p-3.5 rounded-xl glass-card flex flex-col justify-between space-y-2.5 border border-white/10"
-                        >
-                          <div>
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-xs text-white">{m.name}</span>
-                              <span className="text-[10px] font-mono font-semibold text-gray-400">
-                                {(m.fileSizeBytes / (1024 * 1024 * 1024)).toFixed(1)} GB
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-gray-400 line-clamp-2 mt-1">{m.description}</p>
-                          </div>
+                    <div className="grid grid-cols-2 gap-3 max-h-[380px] overflow-y-auto pr-1">
+                      {hubModels
+                        .filter((m) => m.name.toLowerCase().includes(modelSearch.toLowerCase()))
+                        .map((m) => {
+                          const isDownloading = downloadingId === m.id;
+                          const progress = downloadProgress[m.id] || 0;
+                          const isComplete = progress === 100;
 
-                          <div className="space-y-2">
-                            <span
-                              className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full border ${m.compatibility.badgeColor}`}
+                          return (
+                            <div
+                              key={m.id}
+                              className="p-3.5 rounded-xl glass-card flex flex-col justify-between space-y-2.5 border border-white/10 hover:border-white/20 transition-all"
                             >
-                              ● {m.compatibility.statusLabel}
-                            </span>
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-xs text-white">{m.name}</span>
+                                  <span className="text-[10px] font-mono font-semibold text-gray-400">
+                                    {(m.fileSizeBytes / (1024 * 1024 * 1024)).toFixed(1)} GB
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-gray-400 line-clamp-2 mt-1">{m.description}</p>
+                              </div>
 
-                            {/* Download Action */}
-                            {isComplete ? (
-                              <div className="w-full py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-center font-bold text-[11px] flex items-center justify-center space-x-1 border border-emerald-500/30">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Downloaded in ./models/</span>
-                              </div>
-                            ) : isDownloading ? (
-                              <div className="space-y-1">
-                                <div className="flex justify-between text-[10px] font-mono text-sky-400">
-                                  <span>Downloading GGUF...</span>
-                                  <span>{progress}%</span>
+                              <div className="space-y-2">
+                                <span
+                                  className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full border ${m.compatibility.badgeColor}`}
+                                >
+                                  ● {m.compatibility.statusLabel}
+                                </span>
+
+                                <div className="flex items-center space-x-1.5">
+                                  {/* Download Action */}
+                                  {isComplete ? (
+                                    <div className="flex-1 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-center font-bold text-[10px] flex items-center justify-center space-x-1 border border-emerald-500/30">
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>Downloaded</span>
+                                    </div>
+                                  ) : isDownloading ? (
+                                    <div className="flex-1 space-y-1">
+                                      <div className="flex justify-between text-[10px] font-mono text-sky-400">
+                                        <span>Downloading...</span>
+                                        <span>{progress}%</span>
+                                      </div>
+                                      <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden">
+                                        <div
+                                          className="h-full bg-sky-400 transition-all duration-300"
+                                          style={{ width: `${progress}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartDownload(m)}
+                                      className="flex-1 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white font-semibold text-[11px] transition-colors flex items-center justify-center space-x-1 border border-white/10"
+                                    >
+                                      <Download className="w-3 h-3 text-sky-400" />
+                                      <span>Tải GGUF</span>
+                                    </button>
+                                  )}
+
+                                  {/* Tune Parameters Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedHubModel(m);
+                                      setGpuLayers(m.compatibility.recommendedNgl || 21);
+                                      setModelHubSubTab('tuner');
+                                    }}
+                                    title="Tùy chỉnh thông số CUDA, Context và Threads cho model này"
+                                    className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors"
+                                  >
+                                    <Sliders className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
-                                <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-sky-400 transition-all duration-300"
-                                    style={{ width: `${progress}%` }}
-                                  />
-                                </div>
                               </div>
-                            ) : (
-                              <button
-                                onClick={() => handleStartDownload(m)}
-                                className="w-full py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white font-semibold text-xs transition-colors flex items-center justify-center space-x-1.5 border border-white/10"
-                              >
-                                <Download className="w-3.5 h-3.5 text-sky-400" />
-                                <span>Download GGUF</span>
-                              </button>
-                            )}
-                          </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {/* VIEW 2: GGUF & CUDA PARAMETER TUNER (LM Studio Inspector) */}
+                {modelHubSubTab === 'tuner' && (
+                  <div className="space-y-4 animate-fade-in max-h-[420px] overflow-y-auto pr-1">
+                    {/* Model Picker */}
+                    <div className="p-3.5 rounded-xl glass-card border border-white/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-white flex items-center space-x-2">
+                          <Package className="w-4 h-4 text-sky-400" />
+                          <span>Chọn Model cần tùy chỉnh thông số CUDA:</span>
+                        </label>
+                        {selectedHubModel && (
+                          <span className="text-[10px] font-mono text-amber-400 font-semibold">
+                            {selectedHubModel.parameterSize} • {selectedHubModel.quantMethod}
+                          </span>
+                        )}
+                      </div>
+
+                      <select
+                        value={selectedHubModel?.id || hubModels[0]?.id || ''}
+                        onChange={(e) => {
+                          const found = hubModels.find((m) => m.id === e.target.value);
+                          if (found) {
+                            setSelectedHubModel(found);
+                            setGpuLayers(found.compatibility.recommendedNgl || 21);
+                          }
+                        }}
+                        className="w-full px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-gray-200 font-mono text-xs focus:outline-none focus:border-sky-500"
+                      >
+                        {hubModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.filename})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* CUDA GPU Offload Layers (-ngl) Slider */}
+                    <div className="p-3.5 rounded-xl glass-card border border-white/10 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Cpu className="w-4 h-4 text-amber-400" />
+                          <span className="text-xs font-bold text-white">Mức dùng CUDA GPU (-ngl):</span>
                         </div>
-                      );
-                    })}
-                </div>
+                        <span className="font-mono text-xs font-bold text-sky-400 bg-sky-500/10 px-2.5 py-0.5 rounded-full border border-sky-500/25">
+                          {gpuLayers} Layers
+                        </span>
+                      </div>
+
+                      <input
+                        type="range"
+                        min={0}
+                        max={99}
+                        value={gpuLayers}
+                        onChange={(e) => setGpuLayers(parseInt(e.target.value, 10))}
+                        className="w-full accent-sky-400 h-1.5 bg-black/40 rounded-lg cursor-pointer"
+                      />
+
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-gray-400">
+                          {gpuLayers === 0
+                            ? 'CPU Only (Không dùng VRAM)'
+                            : gpuLayers <= 21
+                            ? 'CUDA Tối ưu GTX 1650 (~2.6GB VRAM, an toàn chừa 1000MB OS)'
+                            : 'CUDA Mức cao (Cần trên 3.5GB VRAM, có thể tràn GPU)'}
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-500">Max: 99 layers</span>
+                      </div>
+                    </div>
+
+                    {/* Context Size (-c) & CPU Threads (-t) */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Context Size */}
+                      <div className="p-3.5 rounded-xl glass-card border border-white/10 space-y-2">
+                        <span className="text-xs font-bold text-white block">Kích thước Context (-c):</span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[2048, 4096, 8192].map((sz) => (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => setContextSize(sz)}
+                              className={`py-1 text-center font-mono text-xs rounded-lg border transition-all ${
+                                contextSize === sz
+                                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-bold'
+                                  : 'bg-black/30 text-gray-400 border-white/10 hover:text-white'
+                              }`}
+                            >
+                              {sz}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* CPU Threads */}
+                      <div className="p-3.5 rounded-xl glass-card border border-white/10 space-y-2">
+                        <span className="text-xs font-bold text-white block">Số luồng CPU Threads (-t):</span>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {[2, 4, 6, 8].map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setCpuThreads(t)}
+                              className={`py-1 text-center font-mono text-xs rounded-lg border transition-all ${
+                                cpuThreads === t
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                                  : 'bg-black/30 text-gray-400 border-white/10 hover:text-white'
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Flash Attention Toggle */}
+                    <div className="p-3.5 rounded-xl glass-card border border-white/10 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-white block">Bật Flash Attention (-fa)</span>
+                        <p className="text-[11px] text-gray-400">Tiết kiệm 30% bộ nhớ VRAM khi sinh văn bản dài.</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={flashAttention}
+                          onChange={(e) => setFlashAttention(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                      </label>
+                    </div>
+
+                    {/* Apply Button */}
+                    <div className="pt-1 flex items-center justify-between">
+                      {tuneApplied ? (
+                        <div className="flex items-center space-x-1.5 text-xs text-emerald-400 font-semibold font-mono animate-fade-in">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>Đã lưu & áp dụng thông số CUDA thành công!</span>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-gray-500">
+                          Thông số sẽ áp dụng ngay cho engine llama.cpp.
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleApplyTuning}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-sky-500 hover:from-amber-400 hover:to-sky-400 text-slate-950 font-bold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center space-x-1.5"
+                      >
+                        <Zap className="w-3.5 h-3.5 fill-current" />
+                        <span>Áp dụng thông số CUDA & Đặt làm Model Hoạt động</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -623,7 +850,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       disabled={updateState.loading}
                       className="px-3.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-all disabled:opacity-50 flex items-center space-x-1.5"
                     >
-                      <RotateCw className={`w-3.5 h-3.5 ${updateState.loading ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`w-3.5 h-3.5 ${updateState.loading ? 'animate-spin' : ''}`} />
                       <span>{updateState.loading ? 'Đang kiểm tra...' : 'Check for Updates'}</span>
                     </button>
                   </div>
