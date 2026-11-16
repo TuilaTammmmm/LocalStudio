@@ -39,7 +39,7 @@ interface RightSidebarProps {
 
 type ToolTabId = 'files' | 'terminal' | 'browser' | 'rag' | 'prompt' | 'new';
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({
+export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   activeWorkspace,
   fileTree,
   pinnedFiles,
@@ -77,29 +77,43 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [browserUrl, setBrowserUrl] = useState('http://localhost:3000');
   const [iframeKey, setIframeKey] = useState(0);
 
-  // Resizing mouse handlers
+  // Resizing mouse handlers - 60fps throttled via requestAnimationFrame
   const startResizing = (e: React.MouseEvent) => {
     e.preventDefault();
     setIsResizing(true);
   };
 
   useEffect(() => {
+    let rafId: number | null = null;
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
-      const newWidth = window.innerWidth - e.clientX;
-      if (newWidth >= 280 && newWidth <= 900) {
-        setWidth(newWidth);
-      }
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        const newWidth = window.innerWidth - e.clientX;
+        if (newWidth >= 280 && newWidth <= 900) {
+          setWidth(newWidth);
+        }
+        rafId = null;
+      });
     };
-    const handleMouseUp = () => setIsResizing(false);
+
+    const handleMouseUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      setIsResizing(false);
+    };
 
     if (isResizing) {
-      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mousemove', handleMouseMove, { passive: true });
       window.addEventListener('mouseup', handleMouseUp);
     }
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [isResizing]);
 
@@ -501,14 +515,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       </div>
     </aside>
   );
-};
+});
 
-// Tree node component
+// Tree node component - Memoized
 const FileTreeNode: React.FC<{
   node: FileNode;
   pinnedFiles: string[];
   onTogglePin: (relPath: string) => void;
-}> = ({ node, pinnedFiles, onTogglePin }) => {
+}> = React.memo(({ node, pinnedFiles, onTogglePin }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const isPinned = pinnedFiles.includes(node.relativePath);
 
@@ -562,4 +576,4 @@ const FileTreeNode: React.FC<{
       </button>
     </div>
   );
-};
+});

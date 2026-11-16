@@ -35,7 +35,7 @@ interface ChatViewProps {
   t?: Translations;
 }
 
-export const ChatView: React.FC<ChatViewProps> = ({
+export const ChatView: React.FC<ChatViewProps> = React.memo(({
   activeSession,
   activeWorkspace,
   messages,
@@ -61,9 +61,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const tr = propT || dictionaries[currentLang];
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (!scrollRef.current) return;
+    const el = scrollRef.current;
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
   }, [messages]);
 
   const quickStarters = [
@@ -189,4 +192,4 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
     </div>
   );
-};
+});

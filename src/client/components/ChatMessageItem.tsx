@@ -16,10 +16,11 @@ interface ChatMessageItemProps {
   message: ChatMessage;
 }
 
-export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => {
-  const isUser = message.role === 'user';
-  const [isThinkingOpen, setIsThinkingOpen] = useState(true);
-  const [copied, setCopied] = useState(false);
+export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
+  ({ message }) => {
+    const isUser = message.role === 'user';
+    const [isThinkingOpen, setIsThinkingOpen] = useState(true);
+    const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -159,10 +160,18 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
       </div>
     </div>
   );
-};
+},
+(prevProps, nextProps) => {
+  return (
+    prevProps.message.id === nextProps.message.id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.message.thinking === nextProps.message.thinking &&
+    prevProps.message.modelUsed === nextProps.message.modelUsed
+  );
+});
 
-// Mac-Style Code Block Component (Cursor & Claude Style)
-const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, language }) => {
+// Mac-Style Code Block Component (Cursor & Claude Style) - Memoized for fast code rendering
+const CodeBlock: React.FC<{ code: string; language: string }> = React.memo(({ code, language }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopyCode = () => {
@@ -211,4 +220,4 @@ const CodeBlock: React.FC<{ code: string; language: string }> = ({ code, languag
       </div>
     </div>
   );
-};
+});

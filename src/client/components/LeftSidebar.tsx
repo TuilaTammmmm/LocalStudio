@@ -28,7 +28,7 @@ interface LeftSidebarProps {
   onOpenSettings: () => void;
 }
 
-export const LeftSidebar: React.FC<LeftSidebarProps> = ({
+export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
   workspaces,
   activeWorkspace,
   sessions,
@@ -199,4 +199,4 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
       </div>
     </aside>
   );
-};
+});

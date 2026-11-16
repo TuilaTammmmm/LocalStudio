@@ -85,9 +85,21 @@ export default function App() {
 
     loadInitialData();
 
-    // Poll hardware stats every 5 seconds
+    // Poll hardware stats every 5 seconds with diff check (prevents redundant full-app re-renders)
     const interval = setInterval(() => {
-      api.getHardware().then((hw) => setHardwareStats(hw.stats)).catch(() => {});
+      api.getHardware().then((hw) => {
+        if (!hw?.stats) return;
+        setHardwareStats((prev) => {
+          if (!prev) return hw.stats;
+          if (
+            Math.abs(prev.vramUsedMb - hw.stats.vramUsedMb) < 20 &&
+            prev.gpuUtilization === hw.stats.gpuUtilization
+          ) {
+            return prev;
+          }
+          return hw.stats;
+        });
+      }).catch(() => {});
     }, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -193,6 +205,36 @@ export default function App() {
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
 
+      // High-performance streaming: Accumulate chunks and flush at 60fps via requestAnimationFrame
+      let pendingContent = '';
+      let pendingThinking = '';
+      let rafHandle: number | null = null;
+
+      const scheduleFlush = () => {
+        if (rafHandle !== null) return;
+        rafHandle = requestAnimationFrame(() => {
+          rafHandle = null;
+          if (!pendingContent && !pendingThinking) return;
+          const chunkContent = pendingContent;
+          const chunkThinking = pendingThinking;
+          pendingContent = '';
+          pendingThinking = '';
+
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id === assistantTempId) {
+                return {
+                  ...m,
+                  content: m.content + chunkContent,
+                  thinking: (m.thinking || '') + chunkThinking,
+                };
+              }
+              return m;
+            })
+          );
+        });
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -208,21 +250,36 @@ export default function App() {
 
             try {
               const chunk = JSON.parse(jsonStr);
-              setMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id === assistantTempId) {
-                    return {
-                      ...m,
-                      content: m.content + (chunk.content || ''),
-                      thinking: (m.thinking || '') + (chunk.thinking || ''),
-                    };
-                  }
-                  return m;
-                })
-              );
+              if (chunk.content) pendingContent += chunk.content;
+              if (chunk.thinking) pendingThinking += chunk.thinking;
+              scheduleFlush();
             } catch {}
           }
         }
+      }
+
+      // Cancel any remaining RAF and flush immediately upon stream completion
+      if (rafHandle !== null) {
+        cancelAnimationFrame(rafHandle);
+        rafHandle = null;
+      }
+      if (pendingContent || pendingThinking) {
+        const chunkContent = pendingContent;
+        const chunkThinking = pendingThinking;
+        pendingContent = '';
+        pendingThinking = '';
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id === assistantTempId) {
+              return {
+                ...m,
+                content: m.content + chunkContent,
+                thinking: (m.thinking || '') + chunkThinking,
+              };
+            }
+            return m;
+          })
+        );
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
