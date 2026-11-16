@@ -302,17 +302,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const navItems = [
-    { id: 'autoroute', label: 'Auto Model Router', icon: <Compass className="w-4 h-4 text-sky-400" /> },
-    { id: 'models', label: 'Model Hub & Library', icon: <Package className="w-4 h-4 text-amber-400" /> },
-    { id: 'inference', label: 'Sampling & Inference', icon: <Sliders className="w-4 h-4 text-emerald-400" /> },
-    { id: 'cuda', label: 'CUDA & VRAM Hardware', icon: <Cpu className="w-4 h-4 text-rose-400" /> },
-    { id: 'skills', label: 'Local Skills & Tools', icon: <Sparkles className="w-4 h-4 text-purple-400" /> },
-    { id: 'storage', label: 'Storage & System Paths', icon: <HardDrive className="w-4 h-4 text-teal-400" /> },
-    { id: 'appearance', label: 'Appearance & Glassy UI', icon: <Palette className="w-4 h-4 text-pink-400" /> },
-    { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: <Keyboard className="w-4 h-4 text-yellow-400" /> },
-    { id: 'providers', label: 'API Keys & Providers', icon: <Globe className="w-4 h-4 text-sky-400" /> },
-    { id: 'rag', label: 'Offline RAG & Vectors', icon: <BookOpen className="w-4 h-4 text-indigo-400" /> },
-    { id: 'about', label: 'About & Updates', icon: <Zap className="w-4 h-4 text-amber-400" /> },
+    { id: 'autoroute', label: tr.navAutoRoute || 'Auto Model Router', icon: <Compass className="w-4 h-4 text-sky-400" /> },
+    { id: 'models', label: tr.navModels || 'Model Hub & Library', icon: <Package className="w-4 h-4 text-amber-400" /> },
+    { id: 'inference', label: tr.navInference || 'Sampling & Inference', icon: <Sliders className="w-4 h-4 text-emerald-400" /> },
+    { id: 'cuda', label: tr.navCuda || 'CUDA & VRAM Hardware', icon: <Cpu className="w-4 h-4 text-rose-400" /> },
+    { id: 'skills', label: tr.navSkills || 'Local Skills & Tools', icon: <Sparkles className="w-4 h-4 text-purple-400" /> },
+    { id: 'storage', label: tr.navStorage || 'Storage & System Paths', icon: <HardDrive className="w-4 h-4 text-teal-400" /> },
+    { id: 'appearance', label: tr.navAppearance || 'Appearance & UI Theme', icon: <Palette className="w-4 h-4 text-pink-400" /> },
+    { id: 'shortcuts', label: tr.navShortcuts || 'Keyboard Shortcuts', icon: <Keyboard className="w-4 h-4 text-yellow-400" /> },
+    { id: 'providers', label: tr.navProviders || 'API Keys & Providers', icon: <Globe className="w-4 h-4 text-sky-400" /> },
+    { id: 'rag', label: tr.navRag || 'Offline RAG & Vectors', icon: <BookOpen className="w-4 h-4 text-indigo-400" /> },
+    { id: 'about', label: tr.navAbout || 'About & Updates', icon: <Zap className="w-4 h-4 text-amber-400" /> },
   ];
 
   return (
@@ -323,10 +323,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             onClick={onClose}
             className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-all group shadow-sm"
-            title="Quay lại cuộc trò chuyện (Esc)"
+            title={`${tr.backToChat} (Esc)`}
           >
             <ArrowLeft className="w-4 h-4 text-sky-400 group-hover:-translate-x-0.5 transition-transform" />
-            <span className="font-bold">Back to Chat</span>
+            <span className="font-bold">{tr.backToChat}</span>
             <kbd className="text-[10px] bg-[#0d1117] px-1.5 py-0.5 rounded text-gray-400 border border-[#30363d] font-mono">
               Esc
             </kbd>
@@ -363,7 +363,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="w-64 bg-[#161b22] border-r border-[#30363d] flex flex-col justify-between shrink-0 p-3">
           <div className="space-y-3">
             <div className="px-2 pt-1 text-[11px] font-bold uppercase tracking-wider text-gray-400">
-              Settings & Hardware
+              {tr.settingsAndHardware}
             </div>
 
             <nav className="space-y-1">
@@ -1258,19 +1258,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center space-x-2 border-b border-[#30363d] pb-3">
                     <Palette className="w-4 h-4 text-pink-400" />
                     <div>
-                      <span className="font-bold text-sm text-white">Appearance & UI Theme</span>
-                      <p className="text-[11px] text-gray-400">Tùy biến hiệu ứng mờ kính Frosted Glass, kích thước font và giao diện</p>
+                      <span className="font-bold text-sm text-white">{tr.appearanceTitle}</span>
+                      <p className="text-[11px] text-gray-400">{tr.appearanceSubtitle}</p>
                     </div>
                   </div>
 
                   {/* Glassmorphism Presets */}
                   <div className="space-y-2">
-                    <span className="font-semibold text-xs text-gray-200">Glassmorphism Intensity:</span>
+                    <span className="font-semibold text-xs text-gray-200">{tr.glassIntensity}</span>
                     <div className="grid grid-cols-3 gap-2.5">
                       {[
-                        { id: 'ultra', label: '🔮 Ultra Glassy', desc: 'Blur 24px, hiệu ứng kính mờ tối đa sang trọng' },
-                        { id: 'frosted', label: '💎 Balanced Glass', desc: 'Blur 12px, cân bằng hiệu năng và thẩm mỹ' },
-                        { id: 'solid', label: '⬛ Solid Dark', desc: 'Không mờ, nền tối đặc tương phản cao' },
+                        { id: 'ultra', label: tr.ultraGlass, desc: tr.ultraGlassDesc },
+                        { id: 'frosted', label: tr.balancedGlass, desc: tr.balancedGlassDesc },
+                        { id: 'solid', label: tr.solidDark, desc: tr.solidDarkDesc },
                       ].map((item) => (
                         <button
                           key={item.id}
@@ -1294,12 +1294,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   {/* UI Font Scaling */}
                   <div className="space-y-2 pt-2">
-                    <span className="font-semibold text-xs text-gray-200">Interface Font Scaling:</span>
+                    <span className="font-semibold text-xs text-gray-200">{tr.fontSize}</span>
                     <div className="grid grid-cols-3 gap-2.5">
                       {[
-                        { id: 'compact', label: 'Compact (12px)', desc: 'Tối ưu không gian hiển thị nhiều code' },
-                        { id: 'default', label: 'Default (13px)', desc: 'Cỡ chữ chuẩn hài hòa dễ đọc' },
-                        { id: 'large', label: 'Large (14px)', desc: 'Cỡ chữ lớn thoáng mắt' },
+                        { id: 'compact', label: tr.compact, desc: tr.compactDesc },
+                        { id: 'default', label: tr.defaultFont, desc: tr.defaultFontDesc },
+                        { id: 'large', label: tr.largeFont, desc: tr.largeFontDesc },
                       ].map((item) => (
                         <button
                           key={item.id}

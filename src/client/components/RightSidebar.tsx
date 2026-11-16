@@ -285,12 +285,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
         {/* TAB 1: FILES EXPLORER */}
         {openTabs.includes('files') && activeTab === 'files' && (
           <div className="space-y-1 animate-fade-in">
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-              <span>{activeWorkspace?.name ? `${activeWorkspace.name} - ${tr.projectExplorer}` : tr.projectExplorer}</span>
-              <span className="text-[10px] font-mono text-gray-500">{tr.clickToPin}</span>
+            <div className="text-[11px] font-medium text-gray-400 mb-2 flex items-center justify-between">
+              <span className="font-semibold text-gray-300 truncate max-w-[180px]">
+                {activeWorkspace?.name ? `${activeWorkspace.name} - ${tr.projectExplorer}` : tr.projectExplorer}
+              </span>
+              <span className="text-[10px] text-gray-500 font-sans">{tr.clickToPin}</span>
             </div>
             {fileTree.length === 0 ? (
-              <div className="p-4 text-center text-xs text-gray-500 font-mono">
+              <div className="p-4 text-center text-xs text-gray-500 font-sans">
                 {tr.noFilesFound}
               </div>
             ) : (
@@ -487,8 +489,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
             <Pin className="w-3.5 h-3.5 text-sky-400" />
             <span className="font-semibold text-gray-200">{tr.pinnedFiles}</span>
           </div>
-          <span className="font-mono text-[10px] text-sky-400 font-bold">
-            {pinnedFiles.length} file(s)
+          <span className="text-[10px] text-sky-400 font-bold font-sans">
+            {pinnedFiles.length} {currentLang === 'vi' ? 'tệp' : 'file(s)'}
           </span>
         </div>
         <div className="mt-1.5 max-h-16 overflow-y-auto space-y-1">

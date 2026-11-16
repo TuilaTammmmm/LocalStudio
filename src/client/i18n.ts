@@ -25,6 +25,18 @@ export interface Translations {
   language: string;
   english: string;
   vietnamese: string;
+  settingsAndHardware: string;
+  navAutoRoute: string;
+  navModels: string;
+  navInference: string;
+  navCuda: string;
+  navSkills: string;
+  navStorage: string;
+  navAppearance: string;
+  navShortcuts: string;
+  navProviders: string;
+  navRag: string;
+  navAbout: string;
 
   // Header
   studioTitle: string;
@@ -239,8 +251,8 @@ export const dictionaries: Record<Language, Translations> = {
     close: 'Close',
     active: 'Active',
     backToChat: 'Back to Chat',
-    online: 'ONLINE',
-    offline: 'OFFLINE',
+    online: 'Online',
+    offline: 'Offline',
     search: 'Search...',
     download: 'Download',
     downloaded: 'Downloaded',
@@ -254,6 +266,18 @@ export const dictionaries: Record<Language, Translations> = {
     language: 'Language',
     english: 'English',
     vietnamese: 'Tiếng Việt',
+    settingsAndHardware: 'Settings & Hardware',
+    navAutoRoute: 'Auto Model Router',
+    navModels: 'Model Hub & Library',
+    navInference: 'Sampling & Inference',
+    navCuda: 'CUDA & VRAM Hardware',
+    navSkills: 'Local Skills & Tools',
+    navStorage: 'Storage & System Paths',
+    navAppearance: 'Appearance & UI Theme',
+    navShortcuts: 'Keyboard Shortcuts',
+    navProviders: 'API Keys & Providers',
+    navRag: 'Offline RAG & Vectors',
+    navAbout: 'About & Updates',
 
     studioTitle: 'LocalAI Studio',
     desktopCore: 'Standalone Desktop Core',
@@ -454,8 +478,8 @@ export const dictionaries: Record<Language, Translations> = {
     close: 'Đóng',
     active: 'Đang dùng',
     backToChat: 'Quay lại Chat',
-    online: 'TRỰC TUYẾN',
-    offline: 'NGOẠI TUYẾN',
+    online: 'Trực tuyến',
+    offline: 'Ngoại tuyến',
     search: 'Tìm kiếm...',
     download: 'Tải về',
     downloaded: 'Đã tải',
@@ -469,6 +493,18 @@ export const dictionaries: Record<Language, Translations> = {
     language: 'Ngôn ngữ',
     english: 'English',
     vietnamese: 'Tiếng Việt',
+    settingsAndHardware: 'Cài đặt & Phần cứng',
+    navAutoRoute: 'Định tuyến Tự động',
+    navModels: 'Kho Mô hình (Model Hub)',
+    navInference: 'Cấu hình Suy luận',
+    navCuda: 'Phần cứng CUDA & VRAM',
+    navSkills: 'Kỹ năng Cục bộ (Skills)',
+    navStorage: 'Lưu trữ & Thư mục',
+    navAppearance: 'Giao diện & Chủ đề',
+    navShortcuts: 'Phím tắt Bàn phím',
+    navProviders: 'Nhà cung cấp & API Keys',
+    navRag: 'Vector RAG Cục bộ',
+    navAbout: 'Giới thiệu & Cập nhật',
 
     studioTitle: 'LocalAI Studio',
     desktopCore: 'Nhân máy trạm cục bộ độc lập',

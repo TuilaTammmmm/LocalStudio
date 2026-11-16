@@ -47,6 +47,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNewWorkspaceOpen, setIsNewWorkspaceOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // 1. Initial Data Load
@@ -66,6 +67,7 @@ export default function App() {
         setActiveProvider(provData.activeProvider);
         setSkills(skillsData.skills);
         setSkillFolders(skillsData.folders);
+        setIsOnline(Boolean(hw || provData.providers.length > 0));
 
         // If no workspaces, create default workspace for this repo
         if (wsList.length === 0) {
@@ -332,9 +334,11 @@ export default function App() {
       <Header
         providers={providers}
         activeProvider={activeProvider}
+        activeWorkspace={activeWorkspace}
         hardwareStats={hardwareStats}
         isRightSidebarOpen={isRightSidebarOpen}
         autoRouteEnabled={autoRouteConfig.enabled}
+        isOnline={isOnline}
         lang={lang}
         t={t}
         onToggleLanguage={handleToggleLanguage}
@@ -352,6 +356,7 @@ export default function App() {
           }
         }}
         onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* 2. Main Workspace 3-Column Layout */}
