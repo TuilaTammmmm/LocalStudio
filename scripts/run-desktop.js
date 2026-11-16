@@ -20,6 +20,8 @@ if (args.length === 0 || args[0] === 'dev') {
   cmd = 'concurrently "tsx watch src/index.ts" "tauri dev"';
 } else if (args[0] === 'build') {
   cmd = 'tauri build';
+} else if (args[0] === 'start' || args[0] === 'app') {
+  cmd = 'concurrently "node dist/index.js" "src-tauri\\target\\release\\local-ai-studio.exe"';
 } else {
   cmd = `tauri ${args.join(' ')}`;
 }

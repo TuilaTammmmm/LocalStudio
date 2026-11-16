@@ -8,7 +8,7 @@ import type {
   HardwareStats,
 } from '../types.js';
 import type { FileNode } from '../workspace-fs.js';
-import { api } from './api.js';
+import { api, getApiUrl } from './api.js';
 import { Header } from './components/Header.js';
 import { LeftSidebar } from './components/LeftSidebar.js';
 import { RightSidebar } from './components/RightSidebar.js';
@@ -152,7 +152,7 @@ export default function App() {
     let activeModelName = activeProvider?.selectedModel;
     if (autoRouteConfig.enabled) {
       try {
-        const routeRes = await fetch('/api/auto-route/classify', {
+        const routeRes = await fetch(getApiUrl('/api/auto-route/classify'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -184,7 +184,7 @@ export default function App() {
     abortControllerRef.current = abortController;
 
     try {
-      const response = await fetch('/api/chat/stream', {
+      const response = await fetch(getApiUrl('/api/chat/stream'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

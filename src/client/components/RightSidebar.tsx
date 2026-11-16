@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { Workspace } from '../../types.js';
 import type { FileNode } from '../../workspace-fs.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
+import { getApiUrl } from '../api.js';
 import {
   Folder,
   FileCode,
@@ -146,7 +147,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
     setIsRunning(true);
 
     try {
-      const res = await fetch('/api/terminal/run', {
+      const res = await fetch(getApiUrl('/api/terminal/run'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: cmd, cwd: activeWorkspace?.folderPath }),

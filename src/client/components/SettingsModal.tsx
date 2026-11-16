@@ -3,6 +3,7 @@ import type { LocalSkill, ProviderConfig, HardwareStats } from '../../types.js';
 import type { AutoRouteConfig } from '../../auto-router.js';
 import { type ModelHubItem, type ModelCompatibility, ModelHubService } from '../../model-hub.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
+import { getApiUrl } from '../api.js';
 import {
   X,
   ArrowLeft,
@@ -141,7 +142,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    fetch('/api/models/hub')
+    fetch(getApiUrl('/api/models/hub'))
       .then((res) => res.json())
       .then((data) => {
         const models: EnrichedModelItem[] = data.models || [];
@@ -154,7 +155,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       })
       .catch(() => {});
 
-    fetch('/api/dialog/system-folders')
+    fetch(getApiUrl('/api/dialog/system-folders'))
       .then((res) => res.json())
       .then((data) => setSystemPaths(data))
       .catch(() => {});
@@ -202,7 +203,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setDownloadProgress((prev) => ({ ...prev, [model.id]: 0 }));
 
     try {
-      await fetch('/api/models/download', {
+      await fetch(getApiUrl('/api/models/download'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -214,7 +215,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
       // Poll progress
       const interval = setInterval(async () => {
-        const res = await fetch('/api/models/downloads');
+        const res = await fetch(getApiUrl('/api/models/downloads'));
         const tasks: any[] = await res.json();
         const myTask = tasks.find((t) => t.modelId === model.id);
         if (myTask) {
@@ -250,7 +251,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleCheckUpdate = async () => {
     setUpdateState({ loading: true });
     try {
-      const res = await fetch('/api/app/check-update');
+      const res = await fetch(getApiUrl('/api/app/check-update'));
       const data = await res.json();
       setUpdateState({ loading: false, result: data });
     } catch (err: any) {
@@ -278,7 +279,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleOpenFolder = async (folderPath: string) => {
     try {
-      await fetch('/api/dialog/open-folder', {
+      await fetch(getApiUrl('/api/dialog/open-folder'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: folderPath }),
@@ -290,7 +291,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleClearCache = async () => {
     try {
-      const res = await fetch('/api/app/clear-cache', { method: 'POST' });
+      const res = await fetch(getApiUrl('/api/app/clear-cache'), { method: 'POST' });
       const data = await res.json();
       setCacheMessage(data.message || 'Cache & logs cleared successfully');
       setTimeout(() => setCacheMessage(null), 3000);

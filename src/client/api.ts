@@ -8,7 +8,21 @@ import type {
 } from '../types.js';
 import type { FileNode } from '../workspace-fs.js';
 
-const API_BASE = '/api';
+export function getApiUrl(endpoint: string): string {
+  const clean = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  if (typeof window !== 'undefined') {
+    const isTauri =
+      !!(window as any).__TAURI_INTERNALS__ ||
+      window.location.protocol === 'tauri:' ||
+      window.location.hostname === 'tauri.localhost';
+    if (isTauri || (window.location.port !== '3000' && window.location.port !== '3001')) {
+      return `http://127.0.0.1:3001${clean}`;
+    }
+  }
+  return clean;
+}
+
+export const API_BASE = getApiUrl('/api');
 
 export const api = {
   // Hardware

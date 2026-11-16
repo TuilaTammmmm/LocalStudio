@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
+import { getApiUrl } from '../api.js';
 import { X, FolderPlus, FolderOpen, HardDrive, Sparkles, Loader2 } from 'lucide-react';
 
 interface NewWorkspaceModalProps {
@@ -37,7 +38,7 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       // Fetch system folders for quick chips
-      fetch('/api/dialog/system-folders')
+      fetch(getApiUrl('/api/dialog/system-folders'))
         .then((res) => res.json())
         .then((data) => setSystemFolders(data))
         .catch(() => null);
@@ -50,7 +51,7 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
     setIsPicking(true);
     setErrorMessage(null);
     try {
-      const res = await fetch('/api/dialog/pick-folder', {
+      const res = await fetch(getApiUrl('/api/dialog/pick-folder'), {
         method: 'POST',
       });
       const data = await res.json();
@@ -61,7 +62,11 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
         }
       }
     } catch (err: any) {
-      setErrorMessage('Could not open native picker. Please type path or use browser select.');
+      setErrorMessage(
+        currentLang === 'vi'
+          ? 'Không thể kết nối đến core backend. Vui lòng kiểm tra backend hoặc nhập đường dẫn thủ công.'
+          : 'Could not connect to backend core. Please check backend or type path manually.'
+      );
     } finally {
       setIsPicking(false);
     }
