@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { LocalSkill, ProviderConfig, HardwareStats } from '../../types.js';
 import type { AutoRouteConfig } from '../../auto-router.js';
 import { type ModelHubItem, type ModelCompatibility, ModelHubService } from '../../model-hub.js';
+import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import {
   X,
   ArrowLeft,
@@ -30,6 +31,7 @@ import {
   Trash2,
   ExternalLink,
   FolderOpen,
+  Languages,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -44,6 +46,9 @@ interface SettingsModalProps {
   onAddSkillFolder: (folderPath: string) => void;
   onSaveProvider: (provider: ProviderConfig) => void;
   onSyncProvider: (id: string) => Promise<any>;
+  lang?: Language;
+  t?: Translations;
+  onToggleLanguage?: (l: Language) => void;
 }
 
 interface EnrichedModelItem extends ModelHubItem {
@@ -62,7 +67,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onAddSkillFolder,
   onSaveProvider,
   onSyncProvider,
+  lang,
+  t: propT,
+  onToggleLanguage,
 }) => {
+  const currentLang = lang || getLanguage();
+  const tr = propT || dictionaries[currentLang];
+
   const [activeCategory, setActiveCategory] = useState<
     'autoroute' | 'models' | 'inference' | 'skills' | 'providers' | 'cuda' | 'storage' | 'appearance' | 'shortcuts' | 'rag' | 'about'
   >('autoroute');
@@ -1309,6 +1320,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <div className="text-[10px] text-gray-400 mt-1">{item.desc}</div>
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Language Selection */}
+                  <div className="space-y-2 pt-2 border-t border-white/10">
+                    <span className="font-semibold text-xs text-gray-200">{tr.language}:</span>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => onToggleLanguage && onToggleLanguage('en')}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          currentLang === 'en'
+                            ? 'bg-sky-500/15 border-sky-500/50 text-white shadow-md'
+                            : 'bg-black/30 border-white/10 text-gray-400 hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        <div className="font-bold text-xs flex items-center space-x-1.5">
+                          <Languages className="w-3.5 h-3.5 text-sky-400" />
+                          <span>English</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-1">100% Full English interface</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onToggleLanguage && onToggleLanguage('vi')}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          currentLang === 'vi'
+                            ? 'bg-sky-500/15 border-sky-500/50 text-white shadow-md'
+                            : 'bg-black/30 border-white/10 text-gray-400 hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        <div className="font-bold text-xs flex items-center space-x-1.5">
+                          <Languages className="w-3.5 h-3.5 text-sky-400" />
+                          <span>Tiếng Việt</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-1">Giao diện tiếng Việt hoàn chỉnh</div>
+                      </button>
                     </div>
                   </div>
                 </div>

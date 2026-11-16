@@ -16,8 +16,17 @@ import { ChatView } from './components/ChatView.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import { NewWorkspaceModal } from './components/NewWorkspaceModal.js';
 import { type AutoRouteConfig, DEFAULT_AUTO_ROUTE_CONFIG } from '../auto-router.js';
+import { type Language, type Translations, dictionaries, getLanguage, setLanguage } from './i18n.js';
 
 export default function App() {
+  // Bilingual localization state
+  const [lang, setLang] = useState<Language>(() => getLanguage());
+  const t = dictionaries[lang];
+  const handleToggleLanguage = (newLang: Language) => {
+    setLanguage(newLang);
+    setLang(newLang);
+  };
+
   // Core State
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
@@ -269,6 +278,9 @@ export default function App() {
         hardwareStats={hardwareStats}
         isRightSidebarOpen={isRightSidebarOpen}
         autoRouteEnabled={autoRouteConfig.enabled}
+        lang={lang}
+        t={t}
+        onToggleLanguage={handleToggleLanguage}
         onToggleAutoRoute={() =>
           setAutoRouteConfig((prev) => ({ ...prev, enabled: !prev.enabled }))
         }
@@ -293,6 +305,8 @@ export default function App() {
           activeWorkspace={activeWorkspace}
           sessions={sessions}
           activeSession={activeSession}
+          lang={lang}
+          t={t}
           onSelectWorkspace={setActiveWorkspace}
           onSelectSession={setActiveSession}
           onNewChat={handleNewChat}
@@ -311,6 +325,8 @@ export default function App() {
           fileTree={fileTree}
           providers={providers}
           activeProvider={activeProvider}
+          lang={lang}
+          t={t}
           onSwitchProvider={async (id) => {
             const switched = await api.setActiveProvider(id);
             setActiveProvider(switched);
@@ -341,6 +357,8 @@ export default function App() {
           fileTree={fileTree}
           pinnedFiles={pinnedFiles}
           isOpen={isRightSidebarOpen}
+          lang={lang}
+          t={t}
           onToggle={() => setIsRightSidebarOpen(false)}
           onTogglePinFile={handleTogglePinFile}
           onUpdateSystemPrompt={(prompt) => {
@@ -361,6 +379,9 @@ export default function App() {
         providers={providers}
         hardwareStats={hardwareStats}
         autoRouteConfig={autoRouteConfig}
+        lang={lang}
+        t={t}
+        onToggleLanguage={handleToggleLanguage}
         onUpdateAutoRouteConfig={setAutoRouteConfig}
         onAddSkillFolder={async (folder) => {
           const res = await api.addSkillFolder(folder);
@@ -380,6 +401,8 @@ export default function App() {
       <NewWorkspaceModal
         isOpen={isNewWorkspaceOpen}
         onClose={() => setIsNewWorkspaceOpen(false)}
+        lang={lang}
+        t={t}
         onCreate={async (name, folderPath) => {
           const created = await api.createWorkspace({ name, folderPath });
           setWorkspaces((prev) => [created, ...prev]);

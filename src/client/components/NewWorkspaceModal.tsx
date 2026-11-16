@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import { X, FolderPlus, FolderOpen, HardDrive, Sparkles, Loader2 } from 'lucide-react';
 
 interface NewWorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (name: string, folderPath: string) => void;
+  lang?: Language;
+  t?: Translations;
 }
 
 interface SystemFolders {
@@ -18,7 +21,12 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
   isOpen,
   onClose,
   onCreate,
+  lang,
+  t: propT,
 }) => {
+  const currentLang = lang || getLanguage();
+  const tr = propT || dictionaries[currentLang];
+
   const [name, setName] = useState('');
   const [folderPath, setFolderPath] = useState('');
   const [isPicking, setIsPicking] = useState(false);
@@ -100,8 +108,8 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
               <FolderPlus className="w-4 h-4" />
             </div>
             <div>
-              <span className="font-bold text-sm text-white">Add Project Folder</span>
-              <p className="text-[11px] text-gray-400">Attach a local codebase to run AI tools, RAG & Terminal</p>
+              <span className="font-bold text-sm text-white">{tr.addProjectFolderTitle}</span>
+              <p className="text-[11px] text-gray-400">{tr.addProjectFolderSubtitle}</p>
             </div>
           </div>
           <button
@@ -117,7 +125,7 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-semibold text-gray-300">
-                Project Folder Path on PC:
+                {tr.folderPathLabel}
               </label>
               <span className="text-[10px] text-gray-500">Windows Absolute Path</span>
             </div>
@@ -129,7 +137,7 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
                   required
                   value={folderPath}
                   onChange={(e) => setFolderPath(e.target.value)}
-                  placeholder="e.g. C:\Tam\Code\LocalAI"
+                  placeholder={tr.folderPathPlaceholder}
                   className="w-full px-3 py-2 rounded-xl bg-[#0d1117] border border-[#30363d] text-gray-200 font-mono text-xs focus:outline-none focus:border-sky-500 transition-colors"
                 />
               </div>
@@ -144,12 +152,12 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
                 {isPicking ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Browsing...</span>
+                    <span>{tr.browsingBtn}</span>
                   </>
                 ) : (
                   <>
                     <FolderOpen className="w-3.5 h-3.5" />
-                    <span>Browse...</span>
+                    <span>{tr.browseBtn}</span>
                   </>
                 )}
               </button>
@@ -158,28 +166,28 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
             {/* Quick Suggestions */}
             {systemFolders && (
               <div className="pt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
-                <span className="text-gray-500">Quick suggestions:</span>
+                <span className="text-gray-500">{tr.quickSuggestions}</span>
                 <button
                   type="button"
                   onClick={() => handleSelectQuickFolder(systemFolders.current, 'Current Project')}
                   className="px-2 py-0.5 rounded-md bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] transition-colors truncate max-w-[140px]"
                   title={systemFolders.current}
                 >
-                  ⚡ Current Repo
+                  ⚡ {tr.currentRepo}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSelectQuickFolder(systemFolders.desktop, 'Desktop')}
                   className="px-2 py-0.5 rounded-md bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] transition-colors"
                 >
-                  🖥️ Desktop
+                  🖥️ {tr.desktop}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSelectQuickFolder(systemFolders.documents, 'Documents')}
                   className="px-2 py-0.5 rounded-md bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] transition-colors"
                 >
-                  📁 Documents
+                  📁 {tr.documents}
                 </button>
               </div>
             )}
@@ -187,13 +195,13 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
 
           {/* 2. Workspace Display Name */}
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-gray-300">Workspace Display Name:</label>
+            <label className="text-[11px] font-semibold text-gray-300">{tr.projectNameLabel}</label>
             <input
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. LocalAI Workspace"
+              placeholder={tr.projectNamePlaceholder}
               className="w-full px-3 py-2 rounded-xl bg-[#0d1117] border border-[#30363d] text-gray-200 text-xs focus:outline-none focus:border-sky-500 transition-colors"
             />
           </div>
@@ -217,14 +225,14 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
                 onClick={onClose}
                 className="px-3.5 py-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors font-medium"
               >
-                Cancel
+                {tr.cancel}
               </button>
               <button
                 type="submit"
                 disabled={!name.trim() || !folderPath.trim() || isPicking}
                 className="px-4 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-slate-950 font-semibold transition-all shadow-md shadow-sky-500/20"
               >
-                Create Workspace
+                {tr.createWorkspaceBtn}
               </button>
             </div>
           </div>

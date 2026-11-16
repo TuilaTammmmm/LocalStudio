@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Workspace, ChatSession } from '../../types.js';
+import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import {
   FolderKanban,
   Plus,
@@ -17,6 +18,8 @@ interface LeftSidebarProps {
   activeWorkspace: Workspace | null;
   sessions: ChatSession[];
   activeSession: ChatSession | null;
+  lang?: Language;
+  t?: Translations;
   onSelectWorkspace: (ws: Workspace) => void;
   onSelectSession: (session: ChatSession) => void;
   onNewChat: () => void;
@@ -30,6 +33,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   activeWorkspace,
   sessions,
   activeSession,
+  lang,
+  t: propT,
   onSelectWorkspace,
   onSelectSession,
   onNewChat,
@@ -37,6 +42,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onDeleteSession,
   onOpenSettings,
 }) => {
+  const currentLang = lang || getLanguage();
+  const tr = propT || dictionaries[currentLang];
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -59,7 +66,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
               </div>
               <div className="truncate">
                 <span className="font-bold text-xs text-[#e6edf3] block truncate">
-                  {activeWorkspace ? activeWorkspace.name : 'Select Project'}
+                  {activeWorkspace ? activeWorkspace.name : tr.workspaces}
                 </span>
                 <span className="text-[10px] text-gray-400 font-mono block truncate">
                   {activeWorkspace ? activeWorkspace.folderPath.split(/[\\/]/).pop() : 'No folder'}
@@ -73,7 +80,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           {showWorkspaceMenu && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 overflow-hidden py-1 animate-slide-up backdrop-blur-xl">
               <div className="px-3 py-1.5 text-[10px] font-semibold tracking-wider text-gray-400 uppercase">
-                Active Projects
+                {tr.workspaces}
               </div>
               <div className="max-h-52 overflow-y-auto">
                 {workspaces.map((ws) => (
@@ -103,7 +110,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                   className="w-full flex items-center space-x-2 px-3 py-2 text-xs text-sky-400 hover:bg-[#21262d] font-semibold transition-colors"
                 >
                   <FolderPlus className="w-4 h-4" />
-                  <span>+ Add Project Folder</span>
+                  <span>+ {tr.addProject}</span>
                 </button>
               </div>
             </div>
@@ -116,7 +123,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
           className="w-full flex items-center justify-center space-x-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-sky-400 hover:from-sky-400 hover:to-sky-300 text-slate-950 font-bold text-xs shadow-lg shadow-sky-500/15 transition-all duration-150 active:scale-[0.98]"
         >
           <Plus className="w-4 h-4" />
-          <span>New Chat</span>
+          <span>{tr.newChat}</span>
           <span className="ml-auto text-[10px] opacity-75 font-mono">Ctrl+N</span>
         </button>
 
@@ -126,7 +133,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search chats..."
+            placeholder={tr.search}
             className="w-full pl-7 pr-2.5 py-1.5 rounded-lg bg-[#0d1117] border border-[#30363d] text-gray-200 placeholder-gray-500 text-xs focus:outline-none focus:border-sky-500/80"
           />
           <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2 top-1/2 -translate-y-1/2" />
@@ -136,13 +143,13 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
       {/* 2. Middle Section: Chats Sessions List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         <div className="px-2.5 py-1 text-[10px] font-semibold text-gray-400 tracking-wider uppercase flex items-center justify-between">
-          <span>Chat History</span>
+          <span>{tr.chatHistory}</span>
           <span className="text-[10px] font-mono text-gray-500">{sessions.length}</span>
         </div>
 
         {filteredSessions.length === 0 ? (
           <div className="p-4 text-center text-xs text-gray-500">
-            {searchQuery ? 'No matching chats found.' : 'No chats yet in this folder.'}
+            {tr.noChats}
           </div>
         ) : (
           filteredSessions.map((sess) => {
@@ -163,7 +170,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
                 </div>
                 <button
                   onClick={(e) => onDeleteSession(sess.id, e)}
-                  title="Delete chat"
+                  title={tr.delete}
                   className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-gray-500 p-1 rounded transition-opacity"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -182,7 +189,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
         >
           <div className="flex items-center space-x-2.5">
             <Settings className="w-4 h-4 text-gray-400" />
-            <span className="font-semibold text-xs">Settings & Skills</span>
+            <span className="font-semibold text-xs">{tr.settingsAndSkills}</span>
           </div>
           <span className="flex h-2 w-2 relative">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>

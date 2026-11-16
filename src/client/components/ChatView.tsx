@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import type { ChatSession, ChatMessage, LocalSkill, Workspace, ProviderConfig } from '../../types.js';
 import type { FileNode } from '../../workspace-fs.js';
+import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatInput } from './ChatInput.js';
 import {
@@ -30,6 +31,8 @@ interface ChatViewProps {
   isStreaming: boolean;
   onStopStreaming: () => void;
   onRemovePinnedFile: (file: string) => void;
+  lang?: Language;
+  t?: Translations;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -50,8 +53,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   isStreaming,
   onStopStreaming,
   onRemovePinnedFile,
+  lang,
+  t: propT,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const currentLang = lang || getLanguage();
+  const tr = propT || dictionaries[currentLang];
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -62,27 +69,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const quickStarters = [
     {
       icon: <Code2 className="w-4 h-4 text-sky-400" />,
-      title: 'Review Project Code',
-      desc: 'Check for memory leaks, unhandled exceptions & clean code',
-      prompt: '/review Hãy kiểm tra mã nguồn trong dự án và đề xuất các điểm tối ưu hiệu năng!',
+      title: tr.quickStarterCodeTitle,
+      desc: tr.quickStarterCodeDesc,
+      prompt: tr.quickStarterCodePrompt,
     },
     {
       icon: <Database className="w-4 h-4 text-emerald-400" />,
-      title: 'Analyze Architecture',
-      desc: 'Explain dependencies, data flow & module boundaries',
-      prompt: 'Phân tích kiến trúc tổng thể của workspace này và luồng xử lý dữ liệu chính.',
+      title: tr.quickStarterArchTitle,
+      desc: tr.quickStarterArchDesc,
+      prompt: tr.quickStarterArchPrompt,
     },
     {
       icon: <Brain className="w-4 h-4 text-amber-400" />,
-      title: 'Deep Thinking Mode',
-      desc: 'Formulate step-by-step reasoning for complex algorithms',
-      prompt: 'Hãy dùng tư duy logic từng bước (Deep Reasoning) để giải bài toán tối ưu hóa thuật toán sau:',
+      title: tr.quickStarterThinkTitle,
+      desc: tr.quickStarterThinkDesc,
+      prompt: tr.quickStarterThinkPrompt,
     },
     {
       icon: <Zap className="w-4 h-4 text-purple-400" />,
-      title: 'Generate Unit Tests',
-      desc: 'Create thorough test suites for critical components',
-      prompt: 'Viết bộ kiểm thử tự động (Unit Tests) đầy đủ bao phủ các trường hợp biên.',
+      title: tr.quickStarterTestTitle,
+      desc: tr.quickStarterTestDesc,
+      prompt: tr.quickStarterTestPrompt,
     },
   ];
 
@@ -93,8 +100,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <MessageSquare className="w-7 h-7" />
         </div>
         <div className="text-center space-y-1">
-          <p className="font-semibold text-gray-300">Select or Create a Conversation</p>
-          <p className="text-xs text-gray-500">Pick a chat session on the left or press New Chat to begin.</p>
+          <p className="font-semibold text-gray-300">{tr.selectOrCreateChat}</p>
+          <p className="text-xs text-gray-500">{tr.pickChatDesc}</p>
         </div>
       </div>
     );
@@ -113,10 +120,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <span>Local AI Studio Core Active</span>
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                What would you like to build today?
+                {tr.whatToBuild}
               </h1>
               <p className="text-sm text-gray-400 max-w-md mx-auto leading-relaxed">
-                Running locally on your <span className="text-amber-400 font-semibold">GTX 1650 (CUDA)</span> or synced with <span className="text-sky-400 font-semibold">FreeLLM Cloud</span>.
+                {tr.runningOnHw}
               </p>
             </div>
 
@@ -133,7 +140,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       {item.icon}
                     </div>
                     <span className="text-[10px] font-mono text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                      Send ↵
+                      {tr.send} ↵
                     </span>
                   </div>
                   <div>
@@ -175,6 +182,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
             isAutoRoute={isAutoRoute}
             availableModels={availableModels}
             onSelectModel={onSelectModel}
+            lang={currentLang}
+            t={tr}
           />
         </div>
       </div>

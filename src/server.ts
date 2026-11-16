@@ -17,6 +17,7 @@ import { exec } from 'node:child_process';
 import util from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
+import fs from 'node:fs';
 
 const execAsync = util.promisify(exec);
 

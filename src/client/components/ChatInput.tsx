@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import type { LocalSkill, ProviderConfig } from '../../types.js';
 import type { FileNode } from '../../workspace-fs.js';
+import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import {
   Send,
   Square,
@@ -38,6 +39,8 @@ interface ChatInputProps {
   isAutoRoute?: boolean;
   availableModels?: string[];
   onSelectModel?: (name: string, isAuto?: boolean) => void;
+  lang?: Language;
+  t?: Translations;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -55,7 +58,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   isAutoRoute = true,
   availableModels = [],
   onSelectModel,
+  lang,
+  t: propT,
 }) => {
+  const currentLang = lang || getLanguage();
+  const tr = propT || dictionaries[currentLang];
+
   const [text, setText] = useState('');
   const [attachedImage, setAttachedImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const [autocompleteMode, setAutocompleteMode] = useState<'skill' | 'file' | null>(null);
@@ -282,7 +290,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
-          placeholder={attachedImage ? "Nhập câu hỏi về hình ảnh này (Auto-Route sẽ kích hoạt Qwen2-VL)..." : "Ask a question, type @ to reference file, or / for skills..."}
+          placeholder={attachedImage ? tr.visionPlaceholder : tr.askPlaceholder}
           className="w-full bg-transparent text-gray-100 placeholder-gray-500 text-sm focus:outline-none resize-none leading-relaxed px-1"
         />
 
@@ -302,45 +310,47 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={() => {
-                setText((prev) => `${prev}@`);
-                setShowFilePopup(true);
+                setText((prev) => (prev ? `${prev} @` : '@'));
+                setAutocompleteMode('file');
+                setAutocompleteQuery('');
                 textareaRef.current?.focus();
               }}
               className="flex items-center space-x-1 px-2 py-1 rounded-md text-[11px] text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
             >
               <AtSign className="w-3.5 h-3.5" />
-              <span>File</span>
+              <span>{tr.fileMention}</span>
             </button>
 
             {/* Quick / Skill button */}
             <button
               type="button"
               onClick={() => {
-                setText('/');
-                setShowSkillPopup(true);
+                setText((prev) => (prev ? `${prev} /` : '/'));
+                setAutocompleteMode('skill');
+                setAutocompleteQuery('');
                 textareaRef.current?.focus();
               }}
               className="flex items-center space-x-1 px-2 py-1 rounded-md text-[11px] text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
             >
               <Terminal className="w-3.5 h-3.5" />
-              <span>Skill</span>
+              <span>{tr.skillSlash}</span>
             </button>
 
             {/* Image / Vision trigger button */}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              title="Đính kèm ảnh - Tự động kích hoạt Vision Multimodal Model (Qwen2-VL)"
+              title={currentLang === 'vi' ? "Đính kèm ảnh - Tự động kích hoạt Vision Multimodal Model (Qwen2-VL)" : "Attach image - Auto-dispatches Vision Multimodal Model (Qwen2-VL)"}
               className="flex items-center space-x-1 px-2 py-1 rounded-md text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors border border-amber-500/20"
             >
               <ImageIcon className="w-3.5 h-3.5" />
-              <span>Ảnh (Vision)</span>
+              <span>{tr.visionBtn}</span>
             </button>
 
             {/* Token Counter */}
             {text.length > 0 && (
               <span className="text-[10px] text-gray-500 font-mono ml-2">
-                ~{estimatedTokens} tokens
+                ~{estimatedTokens} {tr.tokens}
               </span>
             )}
           </div>
@@ -473,8 +483,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         <div className="flex items-center space-x-2">
                           <Compass className="w-3.5 h-3.5 text-amber-400" />
                           <div>
-                            <div className="font-semibold">🔮 Auto-Route (Smart)</div>
-                            <div className="text-[10px] text-gray-400 leading-tight">Coder / Reason / Vision / Fast</div>
+                            <div className="font-semibold">{tr.autoRoute}</div>
+                            <div className="text-[10px] text-gray-400 leading-tight">{tr.autoRouteDesc}</div>
                           </div>
                         </div>
                         {isAutoRoute && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
@@ -482,7 +492,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
                       {/* Header for models of selected provider */}
                       <div className="px-2 py-0.5 text-[9px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between border-t border-[#30363d]/50 pt-1.5 mt-1">
-                        <span>{activeProvider?.name.split('(')[0].trim() || 'Selected Provider'} Models</span>
+                        <span>{activeProvider?.name.split('(')[0].trim() || 'Provider'} {tr.providerModels}</span>
                         <span className="font-mono text-gray-500 text-[9px]">
                           {(activeProvider?.models || []).length} available
                         </span>
@@ -521,7 +531,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       {/* If no matching model in provider list */}
                       {(activeProvider?.models || []).filter((m) => !modelSearch || m.toLowerCase().includes(modelSearch.toLowerCase())).length === 0 && (
                         <div className="p-2 text-center text-[10px] text-gray-500 font-mono">
-                          No matching models in {activeProvider?.name.split('(')[0].trim()}
+                          {tr.noMatchingModels}
                         </div>
                       )}
 
@@ -535,7 +545,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                           }}
                           className="w-full p-2 text-left text-xs text-sky-400 hover:bg-[#21262d] rounded-lg border border-dashed border-sky-500/30 mt-1"
                         >
-                          Dùng model tùy chỉnh: "{modelSearch.trim()}"
+                          {tr.useCustomModel} "{modelSearch.trim()}"
                         </button>
                       )}
                     </div>
@@ -552,7 +562,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-semibold transition-colors"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
-                <span>Stop</span>
+                <span>{tr.stop}</span>
               </button>
             ) : (
               <button
@@ -565,7 +575,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     : 'bg-[#21262d] text-gray-500 cursor-not-allowed'
                 }`}
               >
-                <span>Send</span>
+                <span>{tr.send}</span>
                 <CornerDownLeft className="w-3 h-3" />
               </button>
             )}

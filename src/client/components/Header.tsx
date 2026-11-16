@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { ProviderConfig, HardwareStats } from '../../types.js';
+import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import {
   Cpu,
   Zap,
@@ -13,6 +14,7 @@ import {
   Activity,
   Compass,
   Settings,
+  Languages,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -21,6 +23,9 @@ interface HeaderProps {
   hardwareStats: HardwareStats | null;
   isRightSidebarOpen: boolean;
   autoRouteEnabled: boolean;
+  lang?: Language;
+  t?: Translations;
+  onToggleLanguage?: (l: Language) => void;
   onToggleAutoRoute: () => void;
   onSwitchProvider: (providerId: string) => void;
   onSelectModel: (modelName: string) => void;
@@ -33,11 +38,17 @@ export const Header: React.FC<HeaderProps> = ({
   hardwareStats,
   isRightSidebarOpen,
   autoRouteEnabled,
+  lang,
+  t: propT,
+  onToggleLanguage,
   onToggleAutoRoute,
   onSwitchProvider,
   onSelectModel,
   onToggleRightSidebar,
 }) => {
+  const currentLang = lang || getLanguage();
+  const tr = propT || dictionaries[currentLang];
+
   // VRAM calculation for GTX 1650
   const vramUsedGb = hardwareStats ? (hardwareStats.vramUsedMb / 1024).toFixed(1) : '0.3';
   const vramTotalGb = hardwareStats ? (hardwareStats.vramTotalMb / 1024).toFixed(1) : '4.0';
@@ -56,25 +67,38 @@ export const Header: React.FC<HeaderProps> = ({
           <div>
             <div className="flex items-center space-x-1.5">
               <span className="font-bold text-xs tracking-wide text-white">
-                LocalAI Studio
+                {tr.studioTitle}
               </span>
               <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-mono font-semibold">
-                ONLINE
+                {tr.online}
               </span>
             </div>
             <p className="text-[10px] text-gray-400 font-mono hidden sm:block">
-              Standalone Desktop Core
+              {tr.desktopCore}
             </p>
           </div>
         </div>
       </div>
 
-      {/* 2. Right: Hardware HUD & Panel Controls */}
+      {/* 2. Right: Language Switcher, Hardware HUD & Panel Controls */}
       <div className="flex items-center space-x-2.5">
+        {/* Quick Language Toggle [ VI | EN ] */}
+        {onToggleLanguage && (
+          <button
+            type="button"
+            onClick={() => onToggleLanguage(currentLang === 'vi' ? 'en' : 'vi')}
+            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] text-xs font-mono font-semibold transition-all text-gray-300 hover:text-white shadow-inner"
+            title={currentLang === 'vi' ? 'Switch to English (100% full English)' : 'Chuyển sang tiếng Việt'}
+          >
+            <Languages className="w-3.5 h-3.5 text-sky-400" />
+            <span className="text-[11px] font-bold">{currentLang === 'vi' ? 'VI' : 'EN'}</span>
+          </button>
+        )}
+
         {/* Hardware Status Capsule (GTX 1650 VRAM Gauge) */}
         <div
           className="flex items-center space-x-2.5 px-3 py-1 rounded-full bg-[#0d1117] border border-[#30363d] text-xs shadow-inner"
-          title="NVIDIA GeForce GTX 1650 Real-time VRAM"
+          title={tr.vramTooltip}
         >
           <div className="flex items-center space-x-1.5">
             <Cpu className="w-3.5 h-3.5 text-amber-400" />
@@ -92,10 +116,10 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Toggle Right Folder Tools Sidebar (Files, Shell/Terminal, Web/Browser, RAG, Prompt) */}
+        {/* Toggle Right Folder Tools Sidebar */}
         <button
           onClick={onToggleRightSidebar}
-          title={isRightSidebarOpen ? 'Hide Tools Panel (Shell, Browser, Files, RAG)' : 'Open Tools Panel (Shell, Browser, Files, RAG)'}
+          title={isRightSidebarOpen ? tr.hideTools : tr.openTools}
           className={`p-1.5 rounded-lg border transition-all ${
             isRightSidebarOpen
               ? 'bg-[#21262d] text-sky-400 border-[#30363d]'
