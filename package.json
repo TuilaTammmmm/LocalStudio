@@ -20,6 +20,8 @@
   "dependencies": {
     "@hono/node-server": "^1.13.8",
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-shell": "^2.6.0",
     "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
     "hono": "^4.7.4",
