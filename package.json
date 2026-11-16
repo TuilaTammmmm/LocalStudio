@@ -1,0 +1,41 @@
+{
+  "name": "local-ai-backend",
+  "version": "0.1.0",
+  "description": "Local AI Core Backend - Process Manager, Multi-Provider Router & Skills Engine",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "server": "tsx watch src/index.ts",
+    "dev": "vite",
+    "dev:all": "concurrently \"tsx watch src/index.ts\" \"vite\"",
+    "build:server": "tsc",
+    "build:client": "vite build",
+    "build": "tsc && vite build",
+    "start": "node dist/index.js",
+    "test": "tsx test/db.test.ts && tsx test/hardware.test.ts && tsx test/router.test.ts && tsx test/workspace.test.ts && tsx test/skills.test.ts && tsx test/api.test.ts && tsx test/auto-router.test.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "clsx": "^2.1.1",
+    "dotenv": "^16.4.7",
+    "hono": "^4.7.4",
+    "lucide-react": "^1.16.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.0.2",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^10.0.7",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
+  }
+}

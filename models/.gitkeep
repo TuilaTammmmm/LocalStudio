@@ -1,0 +1,3 @@
+# LocalAI GGUF Models Directory
+# Place your downloaded .gguf models here.
+# Downloaded models are ignored by git to keep repository lightweight.

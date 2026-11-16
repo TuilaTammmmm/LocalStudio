@@ -1,0 +1,49 @@
+# Node dependencies
+node_modules/
+.pnpm-store/
+
+# Production build outputs
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Local Database & App State
+.data/
+.data*/
+*.sqlite
+*.sqlite3
+*.db
+
+# AI Models & Executable Binaries (Keep models/ directory with .gitkeep, ignore weights)
+models/*.gguf
+models/**/*.gguf
+bin/*.exe
+bin/*.dll
+bin/*.so
+bin/*.dylib
+llama-server.exe
+
+# Environment Variables & Private Secrets
+.env
+.env.*
+!.env.example
+
+# Logs & Temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+tmp/
+temp/
+
+# OS Artifacts
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
