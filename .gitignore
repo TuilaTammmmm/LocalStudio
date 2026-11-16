@@ -2,6 +2,11 @@
 node_modules/
 .pnpm-store/
 
+# Rust / Tauri build outputs
+src-tauri/target/
+**/target/
+Cargo.lock
+
 # Production build outputs
 dist/
 dist-ssr/
