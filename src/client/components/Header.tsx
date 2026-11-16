@@ -25,7 +25,6 @@ interface HeaderProps {
   onSwitchProvider: (providerId: string) => void;
   onSelectModel: (modelName: string) => void;
   onToggleRightSidebar: () => void;
-  onOpenSettings: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,7 +37,6 @@ export const Header: React.FC<HeaderProps> = ({
   onSwitchProvider,
   onSelectModel,
   onToggleRightSidebar,
-  onOpenSettings,
 }) => {
   const [showProviderMenu, setShowProviderMenu] = useState(false);
 
@@ -154,16 +152,6 @@ export const Header: React.FC<HeaderProps> = ({
             />
           </div>
         </div>
-
-        {/* Settings Studio Button (Model Hub, Auto-Route, Hardware, Skills) */}
-        <button
-          onClick={onOpenSettings}
-          title="Open Settings Studio (Model Hub, GGUF Downloader, Auto-Route, Skills, Providers)"
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-gray-300 hover:text-white bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] transition-colors"
-        >
-          <Settings className="w-3.5 h-3.5 text-sky-400" />
-          <span className="text-[11px] hidden sm:inline">Settings</span>
-        </button>
 
         {/* Toggle Right Folder Tools Sidebar (Files, Shell/Terminal, Web/Browser, RAG, Prompt) */}
         <button

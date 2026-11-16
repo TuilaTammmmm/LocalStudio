@@ -283,7 +283,6 @@ export default function App() {
           }
         }}
         onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* 2. Main Workspace 3-Column Layout */}
@@ -310,6 +309,12 @@ export default function App() {
           pinnedFiles={pinnedFiles}
           availableSkills={skills}
           fileTree={fileTree}
+          providers={providers}
+          activeProvider={activeProvider}
+          onSwitchProvider={async (id) => {
+            const switched = await api.setActiveProvider(id);
+            setActiveProvider(switched);
+          }}
           activeModelName={activeProvider?.selectedModel}
           isAutoRoute={autoRouteConfig.enabled}
           availableModels={activeProvider?.models || []}

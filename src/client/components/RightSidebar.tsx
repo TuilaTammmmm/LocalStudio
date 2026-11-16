@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Workspace } from '../../types.js';
 import type { FileNode } from '../../workspace-fs.js';
 import {
@@ -19,6 +19,8 @@ import {
   Play,
   RotateCw,
   ExternalLink,
+  Plus,
+  X,
 } from 'lucide-react';
 
 interface RightSidebarProps {
@@ -31,6 +33,16 @@ interface RightSidebarProps {
   onUpdateSystemPrompt: (prompt: string) => void;
 }
 
+type ToolTabId = 'files' | 'terminal' | 'browser' | 'rag' | 'prompt';
+
+const ALL_TOOLS: Array<{ id: ToolTabId; label: string; icon: React.ReactNode }> = [
+  { id: 'files', label: 'Files', icon: <FileCode className="w-3.5 h-3.5 text-sky-400" /> },
+  { id: 'terminal', label: 'Shell', icon: <TerminalIcon className="w-3.5 h-3.5 text-rose-400" /> },
+  { id: 'browser', label: 'Web', icon: <Globe className="w-3.5 h-3.5 text-emerald-400" /> },
+  { id: 'rag', label: 'RAG', icon: <Database className="w-3.5 h-3.5 text-indigo-400" /> },
+  { id: 'prompt', label: 'Prompt', icon: <FileText className="w-3.5 h-3.5 text-amber-400" /> },
+];
+
 export const RightSidebar: React.FC<RightSidebarProps> = ({
   activeWorkspace,
   fileTree,
@@ -40,7 +52,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   onTogglePinFile,
   onUpdateSystemPrompt,
 }) => {
-  const [activeTab, setActiveTab] = useState<'files' | 'terminal' | 'browser' | 'rag' | 'prompt'>('files');
+  const [width, setWidth] = useState(380);
+  const [isResizing, setIsResizing] = useState(false);
+  const [openTabs, setOpenTabs] = useState<ToolTabId[]>(['files']);
+  const [activeTab, setActiveTab] = useState<ToolTabId>('files');
+  const [showAddMenu, setShowAddMenu] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState(activeWorkspace?.systemPrompt || '');
   const [isPromptSaved, setIsPromptSaved] = useState(false);
 
@@ -55,7 +71,50 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [browserUrl, setBrowserUrl] = useState('http://localhost:3000');
   const [iframeKey, setIframeKey] = useState(0);
 
+  // Resizing mouse handlers
+  const startResizing = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = window.innerWidth - e.clientX;
+      if (newWidth >= 280 && newWidth <= 900) {
+        setWidth(newWidth);
+      }
+    };
+    const handleMouseUp = () => setIsResizing(false);
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
   if (!isOpen) return null;
+
+  const openToolTab = (id: ToolTabId) => {
+    if (!openTabs.includes(id)) {
+      setOpenTabs((prev) => [...prev, id]);
+    }
+    setActiveTab(id);
+    setShowAddMenu(false);
+  };
+
+  const closeToolTab = (id: ToolTabId, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const remaining = openTabs.filter((t) => t !== id);
+    setOpenTabs(remaining);
+    if (activeTab === id && remaining.length > 0) {
+      setActiveTab(remaining[remaining.length - 1]);
+    }
+  };
 
   const handleRunCommand = async (cmdToRun = command) => {
     if (!cmdToRun.trim() || isRunning) return;
@@ -85,7 +144,17 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   };
 
   return (
-    <aside className="w-84 h-full glass-panel border-l border-white/10 flex flex-col justify-between shrink-0 select-none animate-fade-in shadow-2xl">
+    <aside
+      style={{ width: `${width}px` }}
+      className="h-full glass-panel border-l border-white/10 flex flex-col justify-between shrink-0 select-none animate-fade-in shadow-2xl relative transition-none"
+    >
+      {/* Resizer Handle on Left Border */}
+      <div
+        onMouseDown={startResizing}
+        className="absolute -left-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-sky-500/60 active:bg-sky-500 z-30 transition-colors"
+        title="Kéo sang trái/phải để thay đổi độ rộng Workspace Tools"
+      />
+
       {/* 1. Header */}
       <div className="p-3 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center space-x-2 truncate">
@@ -93,6 +162,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <span className="font-bold text-xs tracking-wide text-white truncate">
             Workspace Tools
           </span>
+          <span className="text-[10px] text-gray-500 font-mono">({width}px)</span>
         </div>
         <button
           onClick={onToggle}
@@ -103,79 +173,108 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         </button>
       </div>
 
-      {/* 2. Switchable Navigation Tabs (Files | Terminal | Browser | RAG | Prompt) */}
-      <div className="flex border-b border-white/10 bg-black/20 text-xs px-1">
-        <button
-          onClick={() => setActiveTab('files')}
-          title="Project Files"
-          className={`flex-1 py-2 text-center font-medium transition-colors border-b-2 flex items-center justify-center space-x-1 ${
-            activeTab === 'files'
-              ? 'border-sky-400 text-sky-400 bg-white/[0.04]'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
-          }`}
-        >
-          <FileCode className="w-3.5 h-3.5" />
-          <span>Files</span>
-          {pinnedFiles.length > 0 && (
-            <span className="bg-sky-500/20 text-sky-400 text-[9px] px-1 rounded-full font-mono">
-              {pinnedFiles.length}
-            </span>
+      {/* 2. Dynamic Open Tabs Bar with [+] Always Available */}
+      <div className="flex items-center border-b border-white/10 bg-black/25 text-xs px-2 py-1 space-x-1 overflow-x-auto relative">
+        {openTabs.map((tabId) => {
+          const tool = ALL_TOOLS.find((t) => t.id === tabId);
+          if (!tool) return null;
+          const isCur = activeTab === tabId;
+          return (
+            <button
+              key={tabId}
+              onClick={() => setActiveTab(tabId)}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all group shrink-0 ${
+                isCur
+                  ? 'bg-white/10 text-white border border-white/15 shadow-sm'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'
+              }`}
+            >
+              {tool.icon}
+              <span>{tool.label}</span>
+              {tabId === 'files' && pinnedFiles.length > 0 && (
+                <span className="bg-sky-500/20 text-sky-400 text-[9px] px-1 rounded-full font-mono">
+                  {pinnedFiles.length}
+                </span>
+              )}
+              <span
+                onClick={(e) => closeToolTab(tabId, e)}
+                title="Đóng tab này"
+                className="hover:text-red-400 hover:bg-white/10 rounded-full p-0.5 ml-0.5 opacity-60 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="w-2.5 h-2.5" />
+              </span>
+            </button>
+          );
+        })}
+
+        {/* [+] Add / Switch Tool Button */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setShowAddMenu(!showAddMenu)}
+            title="Mở thêm công cụ (Files, Terminal, Browser, RAG, Prompt)"
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/25 text-xs font-semibold transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span className="text-[11px]">Tool</span>
+          </button>
+
+          {showAddMenu && (
+            <div className="absolute top-full left-0 mt-1.5 w-48 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-1.5 space-y-1 animate-slide-up backdrop-blur-xl">
+              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-[#30363d] pb-1">
+                Open Workspace Tool
+              </div>
+              {ALL_TOOLS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => openToolTab(t.id)}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
+                    activeTab === t.id && openTabs.includes(t.id)
+                      ? 'bg-sky-500/15 text-sky-400 font-semibold'
+                      : 'text-gray-300 hover:bg-[#21262d]'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    {t.icon}
+                    <span>{t.label}</span>
+                  </div>
+                  {openTabs.includes(t.id) && (
+                    <span className="text-[9px] text-gray-500 font-mono">Open</span>
+                  )}
+                </button>
+              ))}
+            </div>
           )}
-        </button>
-        <button
-          onClick={() => setActiveTab('terminal')}
-          title="Terminal Shell"
-          className={`flex-1 py-2 text-center font-medium transition-colors border-b-2 flex items-center justify-center space-x-1 ${
-            activeTab === 'terminal'
-              ? 'border-rose-400 text-rose-400 bg-white/[0.04]'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
-          }`}
-        >
-          <TerminalIcon className="w-3.5 h-3.5" />
-          <span>Shell</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('browser')}
-          title="Web Browser Preview"
-          className={`flex-1 py-2 text-center font-medium transition-colors border-b-2 flex items-center justify-center space-x-1 ${
-            activeTab === 'browser'
-              ? 'border-emerald-400 text-emerald-400 bg-white/[0.04]'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
-          }`}
-        >
-          <Globe className="w-3.5 h-3.5" />
-          <span>Web</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('rag')}
-          title="Offline RAG Knowledge"
-          className={`flex-1 py-2 text-center font-medium transition-colors border-b-2 flex items-center justify-center space-x-1 ${
-            activeTab === 'rag'
-              ? 'border-indigo-400 text-indigo-400 bg-white/[0.04]'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
-          }`}
-        >
-          <Database className="w-3.5 h-3.5" />
-          <span>RAG</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('prompt')}
-          title="System Prompt"
-          className={`flex-1 py-2 text-center font-medium transition-colors border-b-2 flex items-center justify-center space-x-1 ${
-            activeTab === 'prompt'
-              ? 'border-amber-400 text-amber-400 bg-white/[0.04]'
-              : 'border-transparent text-gray-400 hover:text-gray-200'
-          }`}
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>Prompt</span>
-        </button>
+        </div>
       </div>
 
       {/* 3. Tab Contents */}
       <div className="flex-1 overflow-y-auto p-3">
+        {openTabs.length === 0 && (
+          <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
+            <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-sky-400 shadow-lg shadow-sky-500/5">
+              <Layers className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-gray-200">No Workspace Tool Active</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">Choose a tool to display in this panel</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 w-full pt-2">
+              {ALL_TOOLS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => openToolTab(t.id)}
+                  className="flex items-center space-x-2 p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs text-left transition-all"
+                >
+                  {t.icon}
+                  <span className="font-medium text-gray-200">{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* TAB 1: FILES EXPLORER */}
-        {activeTab === 'files' && (
+        {openTabs.includes('files') && activeTab === 'files' && (
           <div className="space-y-1">
             <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
               <span>Project Explorer</span>
@@ -201,7 +300,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         )}
 
         {/* TAB 2: IN-APP TERMINAL */}
-        {activeTab === 'terminal' && (
+        {openTabs.includes('terminal') && activeTab === 'terminal' && (
           <div className="h-full flex flex-col font-mono text-xs overflow-hidden">
             {/* Quick Actions */}
             <div className="flex items-center space-x-1 pb-2 overflow-x-auto text-[10px]">
@@ -255,7 +354,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         )}
 
         {/* TAB 3: IN-APP BROWSER */}
-        {activeTab === 'browser' && (
+        {openTabs.includes('browser') && activeTab === 'browser' && (
           <div className="h-full flex flex-col overflow-hidden">
             <div className="flex items-center space-x-1.5 pb-2">
               <button
@@ -291,7 +390,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         )}
 
         {/* TAB 4: RAG */}
-        {activeTab === 'rag' && (
+        {openTabs.includes('rag') && activeTab === 'rag' && (
           <div className="space-y-3 text-xs">
             <div className="p-3.5 rounded-xl glass-card space-y-2">
               <div className="font-bold text-sky-400 flex items-center space-x-2">
@@ -313,7 +412,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         )}
 
         {/* TAB 5: FOLDER PROMPT */}
-        {activeTab === 'prompt' && (
+        {openTabs.includes('prompt') && activeTab === 'prompt' && (
           <div className="space-y-2.5 text-xs">
             <div className="text-[11px] font-semibold text-gray-300">
               Folder System Prompt:

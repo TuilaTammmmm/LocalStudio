@@ -11,11 +11,15 @@
     "build:server": "tsc",
     "build:client": "vite build",
     "build": "tsc && vite build",
+    "tauri": "tauri",
+    "desktop:dev": "concurrently \"tsx watch src/index.ts\" \"tauri dev\"",
+    "desktop:build": "tauri build",
     "start": "node dist/index.js",
     "test": "tsx test/db.test.ts && tsx test/hardware.test.ts && tsx test/router.test.ts && tsx test/workspace.test.ts && tsx test/skills.test.ts && tsx test/api.test.ts && tsx test/auto-router.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
+    "@tauri-apps/api": "^2.0.0",
     "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
     "hono": "^4.7.4",
@@ -26,6 +30,7 @@
     "yaml": "^2.7.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^22.13.9",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",

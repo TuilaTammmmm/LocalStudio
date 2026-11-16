@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import type { LocalSkill } from '../../types.js';
+import type { LocalSkill, ProviderConfig } from '../../types.js';
 import type { FileNode } from '../../workspace-fs.js';
 import {
   Send,
@@ -14,6 +14,13 @@ import {
   Image as ImageIcon,
   X,
   Eye,
+  Globe,
+  ChevronDown,
+  Compass,
+  Brain,
+  Code2,
+  Check,
+  Search,
 } from 'lucide-react';
 
 interface ChatInputProps {
@@ -24,6 +31,13 @@ interface ChatInputProps {
   onRemovePinnedFile: (file: string) => void;
   availableSkills: LocalSkill[];
   fileTree: FileNode[];
+  providers?: ProviderConfig[];
+  activeProvider?: ProviderConfig | null;
+  onSwitchProvider?: (providerId: string) => void;
+  activeModelName?: string;
+  isAutoRoute?: boolean;
+  availableModels?: string[];
+  onSelectModel?: (name: string, isAuto?: boolean) => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -34,11 +48,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onRemovePinnedFile,
   availableSkills,
   fileTree,
+  providers = [],
+  activeProvider = null,
+  onSwitchProvider,
+  activeModelName = 'Qwen2.5-3B-Instruct',
+  isAutoRoute = true,
+  availableModels = [],
+  onSelectModel,
 }) => {
   const [text, setText] = useState('');
   const [attachedImage, setAttachedImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const [showSkillPopup, setShowSkillPopup] = useState(false);
   const [showFilePopup, setShowFilePopup] = useState(false);
+  const [showProviderMenu, setShowProviderMenu] = useState(false);
+  const [showModelMenu, setShowModelMenu] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -285,17 +309,197 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             )}
           </div>
 
-          <div className="flex items-center space-x-2">
+          {/* Right Toolbar: Provider | Model | Send */}
+          <div className="flex items-center space-x-1.5 relative">
+            {/* 1. Provider Selector Pill */}
+            {providers.length > 0 && onSwitchProvider && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProviderMenu(!showProviderMenu);
+                    setShowModelMenu(false);
+                  }}
+                  className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] text-xs text-gray-300 hover:text-white transition-all shadow-inner"
+                  title="Switch Provider"
+                >
+                  {activeProvider?.type === 'llama-server' ? (
+                    <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+                  ) : (
+                    <Globe className="w-3 h-3 text-sky-400 shrink-0" />
+                  )}
+                  <span className="font-medium text-[11px] truncate max-w-[85px]">
+                    {activeProvider ? activeProvider.name.split('(')[0].trim() : 'Provider'}
+                  </span>
+                  <ChevronDown className="w-3 h-3 text-gray-500 shrink-0" />
+                </button>
+
+                {showProviderMenu && (
+                  <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-1.5 space-y-1 animate-slide-up backdrop-blur-xl">
+                    <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-[#30363d] pb-1">
+                      Inference Provider
+                    </div>
+                    {providers.map((p) => {
+                      const isCur = activeProvider?.id === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            onSwitchProvider(p.id);
+                            setShowProviderMenu(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                            isCur ? 'bg-sky-500/15 text-sky-400 font-semibold border border-sky-500/30' : 'text-gray-300 hover:bg-[#21262d]'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-1.5 truncate">
+                            {p.type === 'llama-server' ? (
+                              <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+                            ) : (
+                              <Globe className="w-3 h-3 text-sky-400 shrink-0" />
+                            )}
+                            <span className="truncate">{p.name}</span>
+                          </div>
+                          {isCur && <Check className="w-3 h-3 text-sky-400 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 2. Model / Auto-Route Selector Pill */}
+            {onSelectModel && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModelMenu(!showModelMenu);
+                    setShowProviderMenu(false);
+                  }}
+                  className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-all ${
+                    isAutoRoute
+                      ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 ring-1 ring-amber-500/20 shadow-sm'
+                      : 'bg-[#0d1117] hover:bg-[#21262d] border-[#30363d] text-gray-200'
+                  }`}
+                  title={isAutoRoute ? 'Auto-Routing Active' : `Active Model: ${activeModelName}`}
+                >
+                  {isAutoRoute ? (
+                    <Compass className="w-3.5 h-3.5 text-amber-400 animate-spin-slow shrink-0" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  )}
+                  <span className="font-semibold text-[11px] truncate max-w-[110px]">
+                    {isAutoRoute ? '🔮 Auto-Route' : activeModelName?.split('-')[0] || 'Model'}
+                  </span>
+                  <ChevronDown className="w-3 h-3 text-gray-500 shrink-0" />
+                </button>
+
+                {showModelMenu && (
+                  <div className="absolute bottom-full right-0 mb-2 w-72 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1.5 animate-slide-up backdrop-blur-xl">
+                    <div className="relative">
+                      <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={modelSearch}
+                        onChange={(e) => setModelSearch(e.target.value)}
+                        placeholder="Tìm hoặc gõ model..."
+                        className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg pl-7 pr-2.5 py-1 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500/80"
+                        autoFocus
+                      />
+                    </div>
+
+                    <div className="max-h-56 overflow-y-auto space-y-1 pt-1">
+                      {/* Auto Route Option */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectModel('auto', true);
+                          setShowModelMenu(false);
+                        }}
+                        className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors ${
+                          isAutoRoute ? 'bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/40' : 'text-gray-300 hover:bg-[#21262d]'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2">
+                          <Compass className="w-3.5 h-3.5 text-amber-400" />
+                          <div>
+                            <div className="font-semibold">🔮 Auto-Route (Smart)</div>
+                            <div className="text-[10px] text-gray-400 leading-tight">Coder / Reason / Vision / Fast</div>
+                          </div>
+                        </div>
+                        {isAutoRoute && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                      </button>
+
+                      <div className="px-2 py-0.5 text-[9px] font-semibold text-gray-500 uppercase tracking-wider">
+                        Quick Models
+                      </div>
+
+                      {[
+                        { name: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf', label: '⚡ Qwen-3B (Fast)', icon: <Zap className="w-3 h-3 text-amber-400" /> },
+                        { name: 'Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf', label: '💻 Coder-7B (Code Specialist)', icon: <Code2 className="w-3 h-3 text-sky-400" /> },
+                        { name: 'DeepSeek-R1-Distill-Qwen-8B-Q4_K_M.gguf', label: '🧠 DeepSeek-R1 (Reasoning)', icon: <Brain className="w-3 h-3 text-purple-400" /> },
+                        { name: 'Qwen2-VL-7B-Instruct-Q4_K_M.gguf', label: '👁️ Qwen2-VL (Vision Multimodal)', icon: <Eye className="w-3 h-3 text-emerald-400" /> },
+                        { name: 'llama-3.3-70b-instruct', label: '🌐 FreeLLM Cloud (70B)', icon: <Globe className="w-3 h-3 text-cyan-400" /> },
+                      ]
+                        .filter((m) => m.label.toLowerCase().includes(modelSearch.toLowerCase()) || m.name.toLowerCase().includes(modelSearch.toLowerCase()))
+                        .map((m) => {
+                          const isCur = !isAutoRoute && activeModelName === m.name;
+                          return (
+                            <button
+                              key={m.name}
+                              type="button"
+                              onClick={() => {
+                                onSelectModel(m.name, false);
+                                setShowModelMenu(false);
+                              }}
+                              className={`w-full flex items-center justify-between p-1.5 rounded-lg text-left text-xs transition-colors ${
+                                isCur ? 'bg-sky-500/15 text-sky-400 font-semibold border border-sky-500/30' : 'text-gray-300 hover:bg-[#21262d]'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-1.5 truncate">
+                                {m.icon}
+                                <span className="truncate">{m.label}</span>
+                              </div>
+                              {isCur && <Check className="w-3 h-3 text-sky-400 shrink-0" />}
+                            </button>
+                          );
+                        })}
+
+                      {/* Custom typed model if filtered */}
+                      {modelSearch.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectModel(modelSearch.trim(), false);
+                            setShowModelMenu(false);
+                          }}
+                          className="w-full p-2 text-left text-xs text-sky-400 hover:bg-[#21262d] rounded-lg border border-dashed border-sky-500/30"
+                        >
+                          Dùng model tùy chỉnh: "{modelSearch.trim()}"
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 3. Send / Stop Button */}
             {isStreaming ? (
               <button
+                type="button"
                 onClick={onStopStreaming}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-medium transition-colors"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-semibold transition-colors"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
                 <span>Stop</span>
               </button>
             ) : (
               <button
+                type="button"
                 onClick={handleSend}
                 disabled={!text.trim()}
                 className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 ${
