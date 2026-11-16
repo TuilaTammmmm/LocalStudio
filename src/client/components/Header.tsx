@@ -64,18 +64,13 @@ export const Header: React.FC<HeaderProps> = React.memo(({
           <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-slate-950 font-black text-sm shadow-md shadow-sky-500/20">
             ⚡
           </div>
-          <div>
-            <div className="flex items-center space-x-1.5">
-              <span className="font-bold text-xs tracking-wide text-white">
-                {tr.studioTitle}
-              </span>
-              <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-mono font-semibold">
-                {tr.online}
-              </span>
-            </div>
-            <p className="text-[10px] text-gray-400 font-mono hidden sm:block">
-              {tr.desktopCore}
-            </p>
+          <div className="flex items-center space-x-2">
+            <span className="font-bold text-sm tracking-wide text-white">
+              {tr.studioTitle}
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-mono font-semibold">
+              {tr.online}
+            </span>
           </div>
         </div>
       </div>
