@@ -12,7 +12,6 @@ import {
   Layers,
   Sparkles,
   BookOpen,
-  PanelRightClose,
   Database,
   FileText,
   Terminal as TerminalIcon,
@@ -286,12 +285,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
         {openTabs.includes('files') && activeTab === 'files' && (
           <div className="space-y-1 animate-fade-in">
             <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-              <span>{activeWorkspace?.name || 'Project'} Explorer</span>
-              <span className="text-[10px] font-mono text-gray-500">Click [*] to pin</span>
+              <span>{activeWorkspace?.name ? `${activeWorkspace.name} - ${tr.projectExplorer}` : tr.projectExplorer}</span>
+              <span className="text-[10px] font-mono text-gray-500">{tr.clickToPin}</span>
             </div>
             {fileTree.length === 0 ? (
               <div className="p-4 text-center text-xs text-gray-500 font-mono">
-                No files found in workspace.
+                {tr.noFilesFound}
               </div>
             ) : (
               <div className="space-y-0.5">
@@ -315,7 +314,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
             <div className="flex-1 overflow-y-auto bg-black/60 border border-white/10 rounded-xl p-3 font-mono text-xs text-gray-300 space-y-1 select-text">
               {terminalLogs.length === 0 && (
                 <div className="text-[11px] text-gray-500">
-                  PowerShell Terminal Ready. Type command below and press Enter.
+                  {tr.terminalReady}
                 </div>
               )}
               {terminalLogs.map((log, idx) => (
@@ -353,7 +352,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
               </div>
 
               <div className="flex items-center justify-between text-[10px] text-gray-400 px-1">
-                <span>PowerShell Core</span>
+                <span>{tr.shellCore}</span>
                 <button
                   type="button"
                   onClick={() => setTerminalLogs([])}
@@ -391,7 +390,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
                 href={browserUrl}
                 target="_blank"
                 rel="noreferrer"
-                title="Mở trong trình duyệt ngoài"
+                title={tr.openInExternalBrowser}
                 className="p-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-gray-300 hover:text-white border border-white/10 transition-colors"
               >
                 <ExternalLink className="w-3.5 h-3.5" />

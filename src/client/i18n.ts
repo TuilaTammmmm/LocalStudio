@@ -94,6 +94,11 @@ export interface Translations {
   pinnedFiles: string;
   noPinnedFiles: string;
   terminalPlaceholder: string;
+  terminalReady: string;
+  shellCore: string;
+  projectExplorer: string;
+  clickToPin: string;
+  openInExternalBrowser: string;
   run: string;
   running: string;
   clearLogs: string;
@@ -313,6 +318,11 @@ export const dictionaries: Record<Language, Translations> = {
     pinnedFiles: 'Pinned Context Files',
     noPinnedFiles: 'No files pinned yet. Click the pin icon in the file tree.',
     terminalPlaceholder: 'Enter command (e.g. git status, pnpm test)...',
+    terminalReady: 'Terminal Ready. Type command below and press Enter.',
+    shellCore: 'PowerShell / Shell Core',
+    projectExplorer: 'Project Explorer',
+    clickToPin: 'Click pin to attach to context',
+    openInExternalBrowser: 'Open in external browser',
     run: 'Run',
     running: 'Running...',
     clearLogs: 'Clear',
@@ -523,6 +533,11 @@ export const dictionaries: Record<Language, Translations> = {
     pinnedFiles: 'File ngữ cảnh đã ghim',
     noPinnedFiles: 'Chưa có file nào được ghim. Nhấn biểu tượng đinh ghim trong cây thư mục.',
     terminalPlaceholder: 'Nhập lệnh thực thi (vd: git status, pnpm test)...',
+    terminalReady: 'Terminal đã sẵn sàng. Nhập lệnh bên dưới và nhấn Enter.',
+    shellCore: 'PowerShell / Shell Core',
+    projectExplorer: 'Cây thư mục dự án',
+    clickToPin: 'Nhấn ghim để đính kèm vào ngữ cảnh',
+    openInExternalBrowser: 'Mở trong trình duyệt ngoài',
     run: 'Chạy',
     running: 'Đang chạy...',
     clearLogs: 'Xóa log',
