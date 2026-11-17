@@ -172,9 +172,7 @@ export default function App() {
       if (sessList.length > 0) {
         setActiveSession(sessList[0]);
       } else {
-        const defaultTitle = activeWorkspace
-          ? 'Welcome & General Discussion'
-          : (lang === 'vi' ? 'Trò chuyện chung' : 'General Discussion');
+        const defaultTitle = lang === 'vi' ? 'Cuộc trò chuyện mới' : 'New Chat';
         api.createSession(wsId, defaultTitle).then((newSess) => {
           setSessions([newSess]);
           setActiveSession(newSess);
@@ -309,6 +307,9 @@ export default function App() {
               const chunk = JSON.parse(jsonStr);
               if (chunk.content) pendingContent += chunk.content;
               if (chunk.thinking) pendingThinking += chunk.thinking;
+              if (chunk.message || chunk.error) {
+                pendingContent += `\n⚠️ [Lỗi]: ${chunk.message || chunk.error}`;
+              }
               scheduleFlush();
             } catch {}
           }
@@ -405,8 +406,10 @@ export default function App() {
         setIsNewWorkspaceOpen(true);
       } else if (e.key === 'Escape') {
         if (isSettingsOpen) {
-          setIsSettingsOpen(false);
-        } else if (isNewWorkspaceOpen) {
+          // Handled hierarchically inside SettingsModal (e.g. sub-modals like delete confirm first)
+          return;
+        }
+        if (isNewWorkspaceOpen) {
           setIsNewWorkspaceOpen(false);
         }
       }
@@ -529,7 +532,16 @@ export default function App() {
       {/* 3. Settings Studio Modal (Model Hub, Auto-Route, Skills, Providers, CUDA Hardware) */}
       <SettingsModal
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={async () => {
+          setIsSettingsOpen(false);
+          try {
+            const provData = await api.getProviders();
+            setProviders(provData.providers);
+            if (provData.activeProvider) {
+              setActiveProvider(provData.activeProvider);
+            }
+          } catch {}
+        }}
         skills={skills}
         skillFolders={skillFolders}
         providers={providers}
@@ -555,14 +567,32 @@ export default function App() {
           if (activeProvider?.id === saved.id || p.isDefault) setActiveProvider(saved);
         }}
         onDeleteProvider={async (id) => {
-          await api.deleteProvider(id);
           setProviders((prev) => prev.filter((item) => item.id !== id));
           if (activeProvider?.id === id) {
-            const fallback = providers.find((item) => item.id !== id) || null;
-            setActiveProvider(fallback);
+            setActiveProvider(null);
+          }
+          try {
+            await api.deleteProvider(id);
+            const provData = await api.getProviders();
+            setProviders(provData.providers);
+            if (provData.activeProvider) {
+              setActiveProvider(provData.activeProvider);
+            }
+          } catch (err) {
+            console.error('Failed to delete provider', err);
           }
         }}
-        onSyncProvider={(id) => api.syncProvider(id)}
+        onSyncProvider={async (id) => {
+          const res = await api.syncProvider(id);
+          try {
+            const provData = await api.getProviders();
+            setProviders(provData.providers);
+            if (provData.activeProvider) {
+              setActiveProvider(provData.activeProvider);
+            }
+          } catch {}
+          return res;
+        }}
       />
 
       {/* 4. New Workspace Modal */}

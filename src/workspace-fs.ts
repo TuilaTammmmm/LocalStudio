@@ -127,4 +127,33 @@ export class WorkspaceFS {
       return a.name.localeCompare(b.name);
     });
   }
+
+  /**
+   * Search recursively within workspace boundary for a file by basename.
+   */
+  public static findFileByName(
+    rootPath: string,
+    targetName: string,
+    maxDepth = 6,
+    currentDepth = 0
+  ): string | null {
+    if (!fs.existsSync(rootPath) || currentDepth >= maxDepth) return null;
+    try {
+      const entries = fs.readdirSync(rootPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (DEFAULT_IGNORED_DIRS.has(entry.name)) continue;
+        const fullPath = path.join(rootPath, entry.name);
+        if (entry.isFile() && entry.name.toLowerCase() === targetName.toLowerCase()) {
+          return fullPath;
+        }
+        if (entry.isDirectory()) {
+          const found = this.findFileByName(fullPath, targetName, maxDepth, currentDepth + 1);
+          if (found) return found;
+        }
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
 }

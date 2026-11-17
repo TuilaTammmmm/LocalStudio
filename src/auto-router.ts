@@ -8,12 +8,12 @@ export interface AutoRouteConfig {
 }
 
 export const DEFAULT_AUTO_ROUTE_CONFIG: AutoRouteConfig = {
-  enabled: true,
-  generalModel: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
-  coderModel: 'Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf',
-  reasonerModel: 'DeepSeek-R1-Distill-Qwen-8B-Q4_K_M.gguf',
-  visionModel: 'Qwen2-VL-7B-Instruct-Q4_K_M.gguf',
-  heavyModel: 'llama-3.3-70b-instruct',
+  enabled: false,
+  generalModel: '',
+  coderModel: '',
+  reasonerModel: '',
+  visionModel: '',
+  heavyModel: '',
 };
 
 export class AutoModelRouter {

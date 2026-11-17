@@ -51,13 +51,10 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
     setIsPicking(true);
     setErrorMessage(null);
 
-    // 1. If running inside Tauri desktop app, use Tauri native open dialog
-    if (typeof window !== 'undefined' && (window as any).__TAURI__?.dialog) {
+    // 0. First try Electron native modal dialog
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.openFolderDialog) {
       try {
-        const { open } = (window as any).__TAURI__.dialog;
-        const selected = await open({
-          directory: true,
-          multiple: false,
+        const selected = await (window as any).electronAPI.openFolderDialog({
           title: currentLang === 'vi' ? 'Chọn thư mục dự án' : 'Select Project Folder',
         });
         if (selected && typeof selected === 'string') {
@@ -66,15 +63,15 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
             const baseName = selected.split(/[\\/]/).pop() || '';
             setName(baseName);
           }
-          setIsPicking(false);
-          return;
         }
-      } catch (e) {
-        // Fall back to server dialog
+        setIsPicking(false);
+        return;
+      } catch (err) {
+        console.error('Electron folder picker error:', err);
       }
     }
 
-    // 2. Call backend dialog picker
+    // 1. Fall back to backend dialog picker
     try {
       const res = await fetch(getApiUrl('/api/dialog/pick-folder'), {
         method: 'POST',
@@ -82,8 +79,9 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
       const data = await res.json();
       if (data.path) {
         setFolderPath(data.path);
-        if (!name.trim() && data.name) {
-          setName(data.name);
+        if (!name.trim()) {
+          const baseName = data.path.split(/[\\/]/).pop() || '';
+          setName(baseName);
         }
       }
     } catch (err: any) {

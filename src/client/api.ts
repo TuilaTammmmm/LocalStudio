@@ -11,11 +11,12 @@ import type { FileNode } from '../workspace-fs.js';
 export function getApiUrl(endpoint: string): string {
   const clean = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   if (typeof window !== 'undefined') {
+    const isElectron = !!(window as any).electronAPI?.isElectron;
     const isTauri =
       !!(window as any).__TAURI_INTERNALS__ ||
       window.location.protocol === 'tauri:' ||
       window.location.hostname === 'tauri.localhost';
-    if (isTauri || (window.location.port !== '3000' && window.location.port !== '3001')) {
+    if (isElectron || isTauri || (window.location.port !== '3000' && window.location.port !== '3001')) {
       return `http://127.0.0.1:3001${clean}`;
     }
   }

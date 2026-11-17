@@ -48,6 +48,36 @@ export function createServer(
     });
   });
 
+  // Manual & Auto Llama-server control
+  app.post('/api/llama/start', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const binaryPath = llamaManager.findBinaryPath(body.binaryPath);
+    if (!binaryPath) {
+      return c.json({ error: 'llama-server binary not found' }, 404);
+    }
+    const localLlama = db.getProvider('local-llama');
+    const modelPath = router.findModelPath(body.model || localLlama?.selectedModel);
+    if (!modelPath) {
+      return c.json({ error: 'Model file not found' }, 404);
+    }
+    const started = await llamaManager.startServer({
+      binaryPath,
+      modelPath,
+      port: 8080,
+      host: '127.0.0.1',
+      ngl: body.gpuLayers ?? localLlama?.gpuLayers ?? 21,
+      ctxSize: body.contextSize ?? localLlama?.contextSize ?? 4096,
+      threads: body.cpuThreads ?? localLlama?.cpuThreads ?? 4,
+      flashAttention: body.flashAttention ?? localLlama?.flashAttention ?? true,
+    });
+    return c.json({ success: started, status: llamaManager.getStatus() });
+  });
+
+  app.post('/api/llama/stop', async (c) => {
+    await llamaManager.stopServer();
+    return c.json({ success: true, status: llamaManager.getStatus() });
+  });
+
   // 1.1 LM Studio-Style Model Hub & Compatibility
   app.get('/api/models/hub', async (c) => {
     const stats = await hwMonitor.getStats();
@@ -143,12 +173,20 @@ export function createServer(
   });
 
   app.post('/api/models/download', async (c) => {
-    const { modelId, modelName, fileSizeBytes, filename } = await c.req.json();
+    const { modelId, modelName, fileSizeBytes, filename, downloadUrl } = await c.req.json();
+    const customModels = db.listCustomHubModels();
+    const allModels = [...CURATED_MODELS, ...customModels];
+    const curated = allModels.find((m) => m.id === modelId);
+
+    const resolvedUrl = downloadUrl || curated?.downloadUrl;
+    const resolvedFilename = filename || curated?.filename;
+
     const task = await ModelDownloaderService.startDownload(
       modelId,
       modelName,
-      fileSizeBytes || 2_000_000_000,
-      filename
+      fileSizeBytes || curated?.fileSizeBytes || 2_000_000_000,
+      resolvedFilename,
+      resolvedUrl
     );
     return c.json(task);
   });
@@ -159,26 +197,93 @@ export function createServer(
     return c.json({ success: canceled });
   });
 
-  app.delete('/api/models/local/:filename', (c) => {
-    const filename = c.req.param('filename');
+  app.delete('/api/models/local/:filename', async (c) => {
+    const rawFilename = c.req.param('filename');
+    const filename = decodeURIComponent(rawFilename);
     if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
       return c.json({ error: 'Invalid filename' }, 400);
     }
-    const modelsDir = path.resolve(process.cwd(), 'models');
-    const target = path.join(modelsDir, filename);
-    if (fs.existsSync(target)) {
+
+    // Release any file handle held by llama-server before attempting delete on Windows
+    if (llamaManager.isRunning()) {
       try {
-        fs.unlinkSync(target);
-        const localLlama = db.getProvider('local-llama');
-        if (localLlama) {
-          db.syncLocalModels(localLlama);
-        }
-        return c.json({ success: true });
-      } catch (err: any) {
-        return c.json({ error: err.message }, 500);
+        await llamaManager.stopServer();
+        await new Promise((r) => setTimeout(r, 200));
+      } catch (e) {
+        console.warn('[Models] Error stopping llama server before delete:', e);
       }
     }
-    return c.json({ error: 'File not found' }, 404);
+
+    const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || 'C:\\';
+    const candidateDirs = [
+      db.getModelsDir(),
+      ModelDownloaderService.getModelsDir(),
+      path.join(home, 'LocalAI', 'models'),
+      path.resolve(process.cwd(), 'models'),
+      path.join(os.tmpdir(), 'models'),
+    ];
+
+    let deleted = false;
+    let deletedPath = '';
+
+    for (const dir of candidateDirs) {
+      if (!dir || !fs.existsSync(dir)) continue;
+
+      // 1. Try exact path
+      const target = path.join(dir, filename);
+      if (fs.existsSync(target)) {
+        try {
+          fs.unlinkSync(target);
+          if (fs.existsSync(`${target}.part`)) {
+            try { fs.unlinkSync(`${target}.part`); } catch {}
+          }
+          deleted = true;
+          deletedPath = target;
+          break;
+        } catch (err: any) {
+          return c.json({ error: `Cannot delete file: ${err.message}` }, 500);
+        }
+      }
+
+      // 2. Try case-insensitive and pattern search in directory
+      try {
+        const files = fs.readdirSync(dir);
+        const match = files.find((f) => {
+          const fl = f.toLowerCase();
+          const targetLower = filename.toLowerCase();
+          return (
+            fl === targetLower ||
+            fl === `${targetLower}.gguf` ||
+            fl.replace(/-/g, '_') === targetLower.replace(/-/g, '_') ||
+            (targetLower.endsWith('.gguf') && fl === targetLower.replace('.gguf', ''))
+          );
+        });
+        if (match) {
+          const matchTarget = path.join(dir, match);
+          fs.unlinkSync(matchTarget);
+          if (fs.existsSync(`${matchTarget}.part`)) {
+            try { fs.unlinkSync(`${matchTarget}.part`); } catch {}
+          }
+          deleted = true;
+          deletedPath = matchTarget;
+          break;
+        }
+      } catch {}
+    }
+
+    // Always resync local provider
+    const localLlama = db.getProvider('local-llama');
+    if (localLlama) {
+      db.syncLocalModels(localLlama);
+    }
+
+    if (deleted) {
+      console.log(`[Models] Deleted model file: ${deletedPath}`);
+      return c.json({ success: true, path: deletedPath });
+    }
+
+    // If file was already not on disk, return success so frontend state updates
+    return c.json({ success: true, message: 'Model file not on disk or already removed' });
   });
 
   // 2. Workspaces & File Tree
@@ -241,11 +346,31 @@ export function createServer(
     try {
       // Normalize slashes for safe resolution on Windows
       const normalizedRel = relPath.replace(/\//g, path.sep);
-      const safePath = WorkspaceFS.resolveSafePath(ws.folderPath, normalizedRel);
-      if (!fs.existsSync(safePath) || fs.statSync(safePath).isDirectory()) {
+      if (!WorkspaceFS.isSafePath(ws.folderPath, normalizedRel)) {
+        return c.json({ error: 'Security Violation: Path traversal outside workspace boundary' }, 403);
+      }
+      let targetPath = '';
+      try {
+        const safePath = WorkspaceFS.resolveSafePath(ws.folderPath, normalizedRel);
+        if (fs.existsSync(safePath) && !fs.statSync(safePath).isDirectory()) {
+          targetPath = safePath;
+        }
+      } catch {}
+
+      // Fallback: If not found directly, search recursively by filename within workspace
+      if (!targetPath) {
+        const baseName = path.basename(normalizedRel);
+        const found = WorkspaceFS.findFileByName(ws.folderPath, baseName);
+        if (found && fs.existsSync(found) && !fs.statSync(found).isDirectory()) {
+          targetPath = found;
+        }
+      }
+
+      if (!targetPath) {
         return c.json({ error: 'File not found' }, 404);
       }
 
+      const safePath = targetPath;
       const stat = fs.statSync(safePath);
       // Large file protection: slice first 150KB for fast preview
       if (stat.size > 1.5 * 1024 * 1024) {
@@ -520,24 +645,11 @@ export function createServer(
         const psScript = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public class WinHelper {
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool SetForegroundWindow(IntPtr hWnd);
-}
-"@
 $form = New-Object System.Windows.Forms.Form
 $form.TopMost = $true
-$form.StartPosition = 'CenterScreen'
-$form.WindowState = 'Minimized'
+$form.ShowInTaskbar = $false
+$form.Opacity = 0
 $form.Show()
-$form.WindowState = 'Normal'
-$form.Activate()
-$form.BringToFront()
-[WinHelper]::SetForegroundWindow($form.Handle)
 $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
 $dlg.Description = 'Chọn thư mục dự án LocalAI'
 $dlg.ShowNewFolderButton = $true
@@ -578,8 +690,19 @@ $dlg.Dispose()
       home,
       desktop: path.join(home, 'Desktop'),
       documents: path.join(home, 'Documents'),
-      models: path.join(process.cwd(), 'models'),
+      models: db.getModelsDir(),
     });
+  });
+
+  app.post('/api/settings/models-dir', async (c) => {
+    const body = await c.req.json();
+    const folderPath = body.folderPath;
+    if (!folderPath || typeof folderPath !== 'string') {
+      return c.json({ error: 'Valid folderPath is required' }, 400);
+    }
+    const updated = db.setModelsDir(folderPath);
+    ModelDownloaderService.setModelsDir(updated);
+    return c.json({ models: updated });
   });
 
   // 11. Open in Windows Explorer (Instant detach without hanging)

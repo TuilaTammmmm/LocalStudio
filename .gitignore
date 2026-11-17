@@ -1,63 +1,103 @@
-# Node dependencies
+# ==========================================
+# Dependencies
+# ==========================================
 node_modules/
 .pnpm-store/
+package-lock.json
+yarn.lock
 
-# Rust / Tauri build outputs
-src-tauri/target/
-**/target/
-Cargo.lock
-
-# Production build outputs
+# ==========================================
+# Build & Distribution Outputs
+# ==========================================
 dist/
+dist-electron/
+dist-backend/
 dist-ssr/
 build/
+release/
+out/
 *.tsbuildinfo
+*.blockmap
 
-# Local Database & App State
+# ==========================================
+# Local Database & App Runtime State
+# ==========================================
 .data/
 .data*/
+database.json
 *.sqlite
 *.sqlite3
 *.db
 *.tmp
 *.bak
 
-# AI Models & Executable Binaries (Keep models/ directory with .gitkeep, ignore weights)
+# ==========================================
+# AI Models & Large Weight Files
+# (Keep models/ directory tracked via .gitkeep)
+# ==========================================
+*.gguf
 models/*.gguf
 models/**/*.gguf
-bin/*.exe
-bin/*.dll
-bin/*.so
-bin/*.dylib
+*.part
+*.bin
+*.safetensors
+
+# ==========================================
+# Executable Binaries & Compressed Archives
+# ==========================================
+bin/*
+!bin/.gitkeep
 llama-server.exe
 *.exe
 *.dll
+*.dmg
+*.zip
+*.tar.gz
+*.7z
 
+# ==========================================
 # Environment Variables & Private Secrets
+# ==========================================
 .env
 .env.*
 !.env.example
 
-# State & Token Caches
+# ==========================================
+# Token Caches & Code Graphs
+# ==========================================
 .codegraph/*.json
 .codegraph/architecture_map.md
 .atomic/
 
-# Logs & Temporary files
+# ==========================================
+# Logs & Temporary Files
+# ==========================================
 *.log
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 tmp/
 temp/
+.eslintcache
 
+# ==========================================
 # OS Artifacts
+# ==========================================
 Thumbs.db
 Desktop.ini
 .DS_Store
 
+# ==========================================
 # IDE & Editor Settings
+# ==========================================
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# ==========================================
+# Legacy Rust / Tauri build artifacts (Cleaned)
+# ==========================================
+src-tauri/target/
+**/target/
+Cargo.lock

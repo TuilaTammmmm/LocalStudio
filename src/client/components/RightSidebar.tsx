@@ -88,6 +88,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   } | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
+  // Close preview on workspace switch
+  useEffect(() => {
+    setViewingFile(null);
+  }, [activeWorkspace?.id]);
+
   // Esc key closes viewingFile
   useEffect(() => {
     if (!viewingFile) return;
@@ -595,7 +600,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
               rows={8}
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder="e.g. Always respond in concise TypeScript, write unit tests for each function..."
+              placeholder={lang === 'vi' ? 'Nhập chỉ dẫn hệ thống cho workspace này...' : 'Enter system prompt instructions for this workspace...'}
               className="w-full p-2.5 rounded-xl bg-black/40 border border-white/10 text-gray-200 text-xs focus:outline-none focus:border-sky-500 font-mono leading-relaxed resize-none"
             />
 

@@ -87,5 +87,9 @@ export interface LlamaServerConfig {
   ctxSize: number; // Context size e.g. 4096
   threads: number; // CPU threads e.g. 4
   flashAttention: boolean;
-  kvCacheQuant: 'f16' | 'q8_0' | 'q4_0';
+  kvCacheQuant?: 'f16' | 'q8_0' | 'q4_0';
+}
+
+export interface AppSettings {
+  modelsDir?: string;
 }

@@ -37,7 +37,7 @@ export class ContextBuilder {
     let totalTokens = 0;
 
     for (const relPath of relativeFilePaths) {
-      const fullPath = path.resolve(workspaceRoot, relPath);
+      let fullPath = path.resolve(workspaceRoot, relPath);
 
       // Prevent directory traversal attacks
       if (!WorkspaceFS.isSafePath(workspaceRoot, relPath)) {
@@ -46,8 +46,14 @@ export class ContextBuilder {
       }
 
       if (!fs.existsSync(fullPath)) {
-        warnings.push(`File not found: ${relPath}`);
-        continue;
+        // Fallback: search recursively by file name
+        const found = WorkspaceFS.findFileByName(workspaceRoot, path.basename(relPath));
+        if (found && fs.existsSync(found)) {
+          fullPath = found;
+        } else {
+          warnings.push(`File not found: ${relPath}`);
+          continue;
+        }
       }
 
       try {

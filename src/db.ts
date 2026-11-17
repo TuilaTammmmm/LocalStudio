@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Workspace, ChatSession, ChatMessage, ProviderConfig, LocalSkill } from './types.js';
+import os from 'node:os';
+import type { Workspace, ChatSession, ChatMessage, ProviderConfig, LocalSkill, AppSettings } from './types.js';
 import type { ModelHubItem } from './model-hub.js';
 
 interface AppDatabase {
@@ -11,6 +12,7 @@ interface AppDatabase {
   skillFolders: string[];
   skills: Record<string, LocalSkill>;
   customHubModels?: Record<string, ModelHubItem>;
+  settings?: AppSettings;
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
   activeProviderId: string | null;
@@ -33,20 +35,20 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     name: 'Ollama (Local Port 11434)',
     type: 'ollama',
     baseUrl: 'http://127.0.0.1:11434/v1',
-    models: ['llama3:latest', 'qwen2.5:latest'],
-    selectedModel: 'llama3:latest',
+    models: [],
+    selectedModel: '',
     isDefault: false,
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'lmstudio-local',
     name: 'LM Studio (Local Port 1234)',
     type: 'custom',
     baseUrl: 'http://127.0.0.1:1234/v1',
-    models: ['qwen2.5-coder-7b-instruct', 'meta-llama-3.1-8b-instruct'],
-    selectedModel: 'qwen2.5-coder-7b-instruct',
+    models: [],
+    selectedModel: '',
     isDefault: false,
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'freellm-api',
@@ -54,10 +56,10 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     type: 'freellm',
     baseUrl: 'https://api.freellm.example/v1',
     apiKey: '',
-    models: ['llama-3.3-70b-instruct', 'deepseek-v3', 'qwen-2.5-72b'],
-    selectedModel: 'llama-3.3-70b-instruct',
+    models: [],
+    selectedModel: '',
     isDefault: false,
-    enabled: true,
+    enabled: false,
   },
 ];
 
@@ -93,7 +95,7 @@ export class DatabaseService {
           }
         }
         if (parsed.providers && parsed.providers['local-llama']) {
-          const modelsDir = path.resolve(process.cwd(), 'models');
+          const modelsDir = (parsed.settings && parsed.settings.modelsDir) || path.resolve(process.cwd(), 'models');
           let files: string[] = [];
           if (fs.existsSync(modelsDir)) {
             try {
@@ -129,6 +131,42 @@ export class DatabaseService {
     return initialDb;
   }
 
+  public getModelsDir(): string {
+    const custom = this.db?.settings?.modelsDir;
+    if (custom && fs.existsSync(custom)) {
+      return custom;
+    }
+    if (process.env.LOCALAI_MODELS_DIR && fs.existsSync(process.env.LOCALAI_MODELS_DIR)) {
+      return process.env.LOCALAI_MODELS_DIR;
+    }
+    // Permanent user directory, NEVER inside Temp
+    const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || 'C:\\';
+    const defaultDir = path.join(home, 'LocalAI', 'models');
+
+    if (!fs.existsSync(defaultDir)) {
+      try {
+        fs.mkdirSync(defaultDir, { recursive: true });
+      } catch {}
+    }
+    return defaultDir;
+  }
+
+  public setModelsDir(dir: string): string {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (!this.db.settings) {
+      this.db.settings = {};
+    }
+    this.db.settings.modelsDir = dir;
+    this.persist();
+    const localLlama = this.db.providers['local-llama'];
+    if (localLlama) {
+      this.syncLocalModels(localLlama);
+    }
+    return dir;
+  }
+
   private persist(data = this.db): void {
     const tmpPath = `${this.dbFilePath}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
@@ -145,6 +183,18 @@ export class DatabaseService {
   }
 
   public saveWorkspace(workspace: Workspace): Workspace {
+    // If a workspace with the exact folder path already exists, update its name instead of duplicating
+    const normalizedTarget = path.normalize(workspace.folderPath).toLowerCase();
+    const existing = Object.values(this.db.workspaces).find(
+      (w) => w.id !== workspace.id && path.normalize(w.folderPath).toLowerCase() === normalizedTarget
+    );
+    if (existing) {
+      existing.name = workspace.name;
+      existing.updatedAt = Date.now();
+      this.persist();
+      return existing;
+    }
+
     this.db.workspaces[workspace.id] = { ...workspace, updatedAt: Date.now() };
     if (!this.db.activeWorkspaceId) {
       this.db.activeWorkspaceId = workspace.id;
@@ -223,14 +273,26 @@ export class DatabaseService {
   // Providers
   public syncLocalModels(provider: ProviderConfig): void {
     if (provider.id === 'local-llama' || provider.type === 'llama-server') {
-      const modelsDir = path.resolve(process.cwd(), 'models');
-      let files: string[] = [];
-      if (fs.existsSync(modelsDir)) {
-        try {
-          files = fs.readdirSync(modelsDir)
-            .filter((f) => f.toLowerCase().endsWith('.gguf'));
-        } catch {}
+      const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || 'C:\\';
+      const candidateDirs = [
+        this.getModelsDir(),
+        path.join(home, 'LocalAI', 'models'),
+        path.resolve(process.cwd(), 'models'),
+      ];
+
+      const foundFiles = new Set<string>();
+      for (const dir of candidateDirs) {
+        if (dir && fs.existsSync(dir)) {
+          try {
+            const files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.gguf'));
+            for (const f of files) {
+              foundFiles.add(f);
+            }
+          } catch {}
+        }
       }
+
+      const files = Array.from(foundFiles);
       provider.models = files;
       if (!files.includes(provider.selectedModel)) {
         provider.selectedModel = files[0] || '';
@@ -283,15 +345,12 @@ export class DatabaseService {
     if (!this.db.deletedProviderIds.includes(id)) {
       this.db.deletedProviderIds.push(id);
     }
-    if (this.db.providers[id]) {
-      delete this.db.providers[id];
-      if (this.db.activeProviderId === id) {
-        this.db.activeProviderId = 'local-llama';
-      }
-      this.persist();
-      return true;
+    delete this.db.providers[id];
+    if (this.db.activeProviderId === id) {
+      this.db.activeProviderId = 'local-llama';
     }
-    return false;
+    this.persist();
+    return true;
   }
 
   // Custom Hub Models (User-added from Hugging Face or URL)

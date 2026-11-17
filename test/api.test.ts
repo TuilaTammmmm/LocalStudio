@@ -66,7 +66,7 @@ async function run() {
   const safeFileRes = await app.request(`/api/workspaces/${createdWs.id}/file?path=package.json`);
   if (safeFileRes.status !== 200) throw new Error('Failed to read legitimate workspace file');
   const safeFileData: any = await safeFileRes.json();
-  if (!safeFileData.content.includes('local-ai-backend')) throw new Error('Invalid file content returned');
+  if (!safeFileData.content.includes('local-ai-studio') && !safeFileData.content.includes('local-ai-backend')) throw new Error('Invalid file content returned');
 
   const attackFileRes = await app.request(`/api/workspaces/${createdWs.id}/file?path=../../Windows/System32/drivers/etc/hosts`);
   if (attackFileRes.status !== 403) throw new Error(`Expected 403 for directory traversal, got ${attackFileRes.status}`);

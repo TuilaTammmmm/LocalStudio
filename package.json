@@ -1,8 +1,9 @@
 {
-  "name": "local-ai-backend",
+  "name": "local-ai-studio",
   "version": "0.1.0",
+  "author": "LocalAI Team",
   "description": "Local AI Core Backend - Process Manager, Multi-Provider Router & Skills Engine",
-  "main": "src/index.ts",
+  "main": "dist-electron/main.cjs",
   "type": "module",
   "scripts": {
     "server": "tsx watch src/index.ts",
@@ -10,20 +11,16 @@
     "dev:all": "concurrently \"tsx watch src/index.ts\" \"vite\"",
     "build:server": "tsc",
     "build:client": "tsc -p tsconfig.client.json && vite build",
-    "bundle:backend": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=src-tauri/resources/server.cjs",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --target=node20 --outfile=dist-electron/main.cjs --external:electron && esbuild electron/preload.ts --bundle --platform=node --target=node20 --outfile=dist-electron/preload.cjs --external:electron",
+    "electron:dev": "pnpm run build:electron && concurrently -k \"pnpm dev\" \"wait-on http://127.0.0.1:3000 && electron .\"",
+    "electron:start": "pnpm run build:electron && electron .",
+    "electron:build": "pnpm build && pnpm run build:electron && electron-builder --config electron-builder.json",
     "build": "tsc && tsc -p tsconfig.client.json && vite build",
-    "tauri": "node scripts/run-desktop.js",
-    "desktop:dev": "node scripts/run-desktop.js dev",
-    "desktop:start": "node scripts/run-desktop.js start",
-    "desktop:build": "node scripts/run-desktop.js build",
     "start": "node dist/index.js",
     "test": "tsx test/db.test.ts && tsx test/hardware.test.ts && tsx test/router.test.ts && tsx test/workspace.test.ts && tsx test/skills.test.ts && tsx test/api.test.ts && tsx test/auto-router.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
-    "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-process": "^2.4.0",
-    "@tauri-apps/plugin-shell": "^2.6.0",
     "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
     "hono": "^4.7.4",
@@ -34,18 +31,20 @@
     "yaml": "^2.7.0"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0",
-    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^22.13.9",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "concurrently": "^10.0.7",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.25.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "wait-on": "^9.5.1"
   }
 }

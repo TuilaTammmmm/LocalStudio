@@ -457,8 +457,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         />
 
         {/* Bottom Toolbar inside Composer */}
-        <div className="flex items-center justify-between pt-1 border-t border-[#30363d]/60">
-          <div className="flex items-center space-x-1.5">
+        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[#30363d]/60 flex-wrap">
+          <div className="flex items-center space-x-1.5 shrink-0 flex-wrap gap-y-1">
             {/* Quick @ File button */}
             <button
               type="button"
@@ -468,10 +468,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 setAutocompleteQuery('');
                 textareaRef.current?.focus();
               }}
-              className="flex items-center space-x-1 px-2 py-1 rounded-md text-[11px] text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
+              className="inline-flex items-center space-x-1.5 px-2.5 h-7 rounded-md text-[11px] font-medium text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors whitespace-nowrap shrink-0 leading-none"
             >
-              <AtSign className="w-3.5 h-3.5" />
-              <span>{tr.fileMention}</span>
+              <AtSign className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap">{tr.fileMention}</span>
             </button>
 
             {/* Quick / Skill button */}
@@ -483,10 +483,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 setAutocompleteQuery('');
                 textareaRef.current?.focus();
               }}
-              className="flex items-center space-x-1 px-2 py-1 rounded-md text-[11px] text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors"
+              className="inline-flex items-center space-x-1.5 px-2.5 h-7 rounded-md text-[11px] font-medium text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors whitespace-nowrap shrink-0 leading-none"
             >
-              <Terminal className="w-3.5 h-3.5" />
-              <span>{tr.skillSlash}</span>
+              <Terminal className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap">{tr.skillSlash}</span>
             </button>
 
             {/* Image / Vision trigger button */}
@@ -494,22 +494,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               title={currentLang === 'vi' ? "Đính kèm ảnh - Tự động kích hoạt Vision Multimodal Model (Qwen2-VL)" : "Attach image - Auto-dispatches Vision Multimodal Model (Qwen2-VL)"}
-              className="flex items-center space-x-1 px-2 py-1 rounded-md text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors border border-amber-500/20"
+              className="inline-flex items-center space-x-1.5 px-2.5 h-7 rounded-md text-[11px] font-medium text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors border border-amber-500/20 whitespace-nowrap shrink-0 leading-none"
             >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span>{tr.visionBtn}</span>
+              <ImageIcon className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap">{tr.visionBtn}</span>
             </button>
 
             {/* Token Counter */}
             {text.length > 0 && (
-              <span className="text-[10px] text-gray-500 font-mono ml-2">
+              <span className="text-[10px] text-gray-500 font-mono ml-2 whitespace-nowrap shrink-0">
                 ~{estimatedTokens} {tr.tokens}
               </span>
             )}
           </div>
 
           {/* Right Toolbar: Provider | Model | Send */}
-          <div className="flex items-center space-x-1.5 relative">
+          <div className="flex items-center space-x-1.5 relative shrink-0 ml-auto">
             {/* Backdrop for Popups */}
             {(showProviderMenu || showModelMenu) && (
               <div

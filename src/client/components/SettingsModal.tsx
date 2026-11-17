@@ -38,6 +38,7 @@ import {
   HardDrive,
   Palette,
   Keyboard,
+  AlertTriangle,
   Trash2,
   ExternalLink,
   FolderOpen,
@@ -128,6 +129,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     models: string;
   } | null>(null);
   const [cacheMessage, setCacheMessage] = useState<string | null>(null);
+  const [deleteConfirmModel, setDeleteConfirmModel] = useState<EnrichedModelItem | null>(null);
+  const [deleteConfirmProvider, setDeleteConfirmProvider] = useState<ProviderConfig | null>(null);
+  const [localProviders, setLocalProviders] = useState<ProviderConfig[]>(providers);
+
+  useEffect(() => {
+    setLocalProviders(providers);
+  }, [providers]);
 
   // Appearance & Themes (Dark, Midnight, Obsidian, Slate)
   const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => getSavedThemeSettings().theme);
@@ -169,12 +177,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-  // Sliders for selected model (CUDA, Context, Threads, Flash Attention)
-  const [gpuLayers, setGpuLayers] = useState(21);
-  const [contextSize, setContextSize] = useState(4096);
-  const [cpuThreads, setCpuThreads] = useState(4);
-  const [flashAttention, setFlashAttention] = useState(true);
+  // Global Hardware tuning for local-llama (CUDA, Context, Threads, Flash Attention)
+  const activeLlamaProvider = providers.find((p) => p.id === 'local-llama' || p.type === 'llama-server');
+  const [gpuLayers, setGpuLayers] = useState<number>(() => activeLlamaProvider?.gpuLayers ?? 21);
+  const [contextSize, setContextSize] = useState<number>(() => activeLlamaProvider?.contextSize ?? 4096);
+  const [cpuThreads, setCpuThreads] = useState<number>(() => activeLlamaProvider?.cpuThreads ?? 4);
+  const [flashAttention, setFlashAttention] = useState<boolean>(() => activeLlamaProvider?.flashAttention ?? true);
   const [tuneApplied, setTuneApplied] = useState(false);
+
+  // Sync settings when providers prop updates
+  useEffect(() => {
+    const p = providers.find((item) => item.id === 'local-llama' || item.type === 'llama-server');
+    if (p) {
+      if (p.gpuLayers !== undefined) setGpuLayers(p.gpuLayers);
+      if (p.contextSize !== undefined) setContextSize(p.contextSize);
+      if (p.cpuThreads !== undefined) setCpuThreads(p.cpuThreads);
+      if (p.flashAttention !== undefined) setFlashAttention(p.flashAttention);
+    }
+  }, [isOpen, providers]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -183,10 +203,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       .then((data) => {
         const models: EnrichedModelItem[] = data.models || [];
         setHubModels(models);
-        if (models.length > 0) {
+        if (models.length > 0 && !selectedHubModel) {
           const initial = models[0];
           setSelectedHubModel(initial);
-          setGpuLayers(initial.fileSizeBytes <= 2600000000 ? (initial.totalLayers || 28) : 21);
         }
       })
       .catch(() => {});
@@ -197,12 +216,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       .catch(() => {});
   }, [isOpen]);
 
-  // Esc key listener to quickly close modal or sub-forms
+  // Esc key listener to quickly close modal or sub-forms in strict hierarchical order
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isAddingCustomModel) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (deleteConfirmModel) {
+          setDeleteConfirmModel(null);
+        } else if (deleteConfirmProvider) {
+          setDeleteConfirmProvider(null);
+        } else if (isAddingCustomModel) {
           setIsAddingCustomModel(false);
         } else if (isAddingProvider) {
           setIsAddingProvider(false);
@@ -213,16 +239,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isAddingCustomModel, isAddingProvider, onClose]);
+  }, [isOpen, deleteConfirmModel, deleteConfirmProvider, isAddingCustomModel, isAddingProvider, onClose]);
 
   if (!isOpen) return null;
 
   const handleSelectHubModel = (model: EnrichedModelItem) => {
     setSelectedHubModel(model);
-    const recNgl = model.fileSizeBytes <= 2600000000
-      ? (model.totalLayers || 28)
-      : (model.compatibility?.recommendedNgl || 21);
-    setGpuLayers(recNgl);
   };
 
   // Dynamic compatibility evaluation based on current slider gpuLayers
@@ -290,14 +312,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleDeleteModel = async (model: EnrichedModelItem, e?: React.MouseEvent) => {
+  const handleDeleteModel = (model: EnrichedModelItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const confirmed = window.confirm(
-      currentLang === 'vi'
-        ? `Bạn có chắc muốn xóa mô hình "${model.name}" khỏi ổ cứng?`
-        : `Delete "${model.name}" from disk?`
-    );
-    if (!confirmed) return;
+    setDeleteConfirmModel(model);
+  };
+
+  const executeDeleteModel = async () => {
+    if (!deleteConfirmModel) return;
+    const model = deleteConfirmModel;
+    setDeleteConfirmModel(null);
+
+    setDownloadProgress((prev) => {
+      const next = { ...prev };
+      delete next[model.id];
+      return next;
+    });
 
     const localModels = providers.find((p) => p.id === 'local-llama')?.models || [];
     const targetFile =
@@ -324,12 +353,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleApplyTuning = () => {
-    const llamaProvider = providers.find((p) => p.type === 'llama-server') || currentProvider;
-    if (llamaProvider && selectedHubModel) {
+  const handleSaveHardwareConfig = () => {
+    const llamaProvider = providers.find((p) => p.id === 'local-llama' || p.type === 'llama-server');
+    if (llamaProvider) {
       const updated: ProviderConfig = {
         ...llamaProvider,
-        selectedModel: selectedHubModel.filename,
         gpuLayers,
         contextSize,
         cpuThreads,
@@ -338,6 +366,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onSaveProvider(updated);
       setTuneApplied(true);
       setTimeout(() => setTuneApplied(false), 2500);
+    }
+  };
+
+  const handleSetActiveModel = (model: EnrichedModelItem) => {
+    const llamaProvider = providers.find((p) => p.id === 'local-llama' || p.type === 'llama-server');
+    if (llamaProvider) {
+      const updated: ProviderConfig = {
+        ...llamaProvider,
+        selectedModel: model.filename,
+        gpuLayers,
+        contextSize,
+        cpuThreads,
+        flashAttention,
+      };
+      onSaveProvider(updated);
+      setTuneApplied(true);
+      setTimeout(() => setTuneApplied(false), 2500);
+    }
+  };
+
+  const handleApplyTuning = () => {
+    if (selectedHubModel) {
+      handleSetActiveModel(selectedHubModel);
     }
   };
 
@@ -996,91 +1047,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       )}
 
-                      {/* Slider for GPU Offload Layers (-ngl) */}
-                      <div className="space-y-2 pt-1">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-bold text-gray-200">
-                            Số Layer nạp vào GPU VRAM (-ngl):
-                          </label>
-                          <span className="font-mono text-xs font-bold text-sky-400 bg-sky-500/10 px-2.5 py-0.5 rounded-full border border-sky-500/25">
-                            {gpuLayers} / {selectedHubModel.totalLayers || 32} Layers
-                          </span>
-                        </div>
-
-                        <input
-                          type="range"
-                          min={0}
-                          max={selectedHubModel.totalLayers || 32}
-                          value={gpuLayers}
-                          onChange={(e) => setGpuLayers(parseInt(e.target.value, 10))}
-                          className="w-full accent-sky-400 h-2 bg-[#0d1117] rounded-lg cursor-pointer"
-                        />
-
-                        <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
-                          <span>0 (Chạy 100% trên CPU)</span>
-                          <span className="text-sky-400 font-semibold">Kéo thanh trượt tag sẽ tự cập nhật</span>
-                          <span>{selectedHubModel.totalLayers || 32} (100% GPU)</span>
-                        </div>
-                      </div>
-
-                      {/* Context Size & CPU Threads */}
-                      <div className="grid grid-cols-2 gap-3 pt-2">
-                        <div className="space-y-1.5">
-                          <span className="text-xs font-semibold text-gray-200">Ngữ cảnh Context Window (-c):</span>
-                          <div className="grid grid-cols-3 gap-1.5">
-                            {[2048, 4096, 8192].map((sz) => (
-                              <button
-                                key={sz}
-                                type="button"
-                                onClick={() => setContextSize(sz)}
-                                className={`py-1.5 text-center font-mono text-xs rounded-lg border transition-all ${
-                                  contextSize === sz
-                                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-bold'
-                                    : 'bg-[#0d1117] text-gray-400 border-[#30363d] hover:text-white hover:bg-[#21262d]'
-                                }`}
-                              >
-                                {sz}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <span className="text-xs font-semibold text-gray-200">Số luồng CPU Threads (-t):</span>
-                          <div className="grid grid-cols-4 gap-1.5">
-                            {[2, 4, 6, 8].map((t) => (
-                              <button
-                                key={t}
-                                type="button"
-                                onClick={() => setCpuThreads(t)}
-                                className={`py-1.5 text-center font-mono text-xs rounded-lg border transition-all ${
-                                  cpuThreads === t
-                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
-                                    : 'bg-[#0d1117] text-gray-400 border-[#30363d] hover:text-white hover:bg-[#21262d]'
-                                }`}
-                              >
-                                {t}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Flash Attention Toggle */}
+                      {/* Hardware Tuning Guidance Note */}
                       <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-bold text-white block">Flash Attention (-fa)</span>
-                          <p className="text-[10px] text-gray-400">Tiết kiệm ~30% VRAM khi tạo văn bản dài.</p>
+                        <div className="space-y-0.5">
+                          <span className="text-xs font-bold text-gray-200 block">
+                            {currentLang === 'vi' ? 'Cấu hình phần cứng GPU & CPU' : 'Hardware & GPU Configuration'}
+                          </span>
+                          <p className="text-[11px] text-gray-400">
+                            {currentLang === 'vi'
+                              ? 'GPU Layers, số luồng CPU và Context Window được quản lý tập trung và lưu vĩnh viễn trong mục "Cấu hình GPU & Phần cứng".'
+                              : 'GPU Layers, CPU Threads and Context Window are centrally managed in the "CUDA & VRAM Hardware" tab.'}
+                          </p>
                         </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={flashAttention}
-                            onChange={(e) => setFlashAttention(e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-10 h-5 bg-[#21262d] border border-[#30363d] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setActiveCategory('cuda')}
+                          className="px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-sky-400 hover:text-sky-300 text-xs font-semibold border border-[#30363d] whitespace-nowrap ml-3 transition-colors"
+                        >
+                          {currentLang === 'vi' ? 'Chỉnh GPU ➔' : 'Tune Hardware ➔'}
+                        </button>
                       </div>
                     </div>
 
@@ -1128,22 +1113,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         )}
                       </div>
 
-                      {/* Apply & Set as Active Model */}
+                      {/* Set as Active Model */}
                       <div className="flex items-center space-x-3">
                         {tuneApplied && (
                           <span className="text-xs text-emerald-400 font-semibold font-mono flex items-center space-x-1 animate-fade-in">
                             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                            <span>Đã áp dụng!</span>
+                            <span>{currentLang === 'vi' ? 'Đã kích hoạt!' : 'Activated!'}</span>
                           </span>
                         )}
-                        <button
-                          type="button"
-                          onClick={handleApplyTuning}
-                          className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-sky-500 hover:from-amber-400 hover:to-sky-400 text-slate-950 font-bold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center space-x-1.5"
-                        >
-                          <Zap className="w-3.5 h-3.5 fill-current" />
-                          <span>Áp dụng thông số & Đặt làm Model Hoạt động</span>
-                        </button>
+                        {providers.find((p) => p.id === 'local-llama')?.selectedModel?.toLowerCase() === selectedHubModel.filename.toLowerCase() ? (
+                          <div className="px-4 py-2 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold text-xs flex items-center space-x-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <span>{currentLang === 'vi' ? 'Đang hoạt động' : 'Currently Active'}</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleSetActiveModel(selectedHubModel)}
+                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-sky-500 hover:from-amber-400 hover:to-sky-400 text-slate-950 font-bold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center space-x-1.5"
+                          >
+                            <Zap className="w-3.5 h-3.5 fill-current" />
+                            <span>{currentLang === 'vi' ? 'Đặt làm Model Hoạt động' : 'Set as Active Model'}</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1623,9 +1615,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* 5. CUDA HARDWARE */}
+            {/* 5. CUDA & HARDWARE TUNING (Global Local llama.cpp settings) */}
             {activeCategory === 'cuda' && (
               <div className="space-y-4 animate-fade-in">
+                {/* Hardware Monitor Header */}
                 <div className="p-4 rounded-xl bg-[#161b22] border border-[#30363d] space-y-3 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
@@ -1655,10 +1648,202 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
+                {/* Global Hardware Tuning Controls for Local llama.cpp */}
+                <div className="p-5 rounded-2xl bg-[#161b22] border border-[#30363d] space-y-4 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-[#30363d] pb-3">
+                    <div>
+                      <span className="text-sm font-bold text-white block">
+                        {currentLang === 'vi' ? 'Cấu hình phần cứng cho Local llama.cpp' : 'Hardware Tuning for Local llama.cpp'}
+                      </span>
+                      <p className="text-[11px] text-gray-400">
+                        {currentLang === 'vi'
+                          ? 'Cài đặt tại đây được lưu cố định và tự động áp dụng khi chạy bất kỳ mô hình offline nào.'
+                          : 'Configured once and permanently applied when running any offline local model.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSaveHardwareConfig}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-sky-500 hover:from-amber-400 hover:to-sky-400 text-slate-950 font-bold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center space-x-1.5"
+                    >
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                      <span>{currentLang === 'vi' ? 'Lưu Cấu Hình' : 'Save Settings'}</span>
+                    </button>
+                  </div>
+
+                  {tuneApplied && (
+                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center space-x-2 animate-fade-in">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>{currentLang === 'vi' ? 'Đã lưu cấu hình phần cứng thành công!' : 'Hardware settings saved successfully!'}</span>
+                    </div>
+                  )}
+
+                  {/* 1. GPU Offload Layers Slider */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-gray-200">
+                        {currentLang === 'vi' ? 'Số Layer nạp vào GPU VRAM (-ngl):' : 'GPU Offload Layers (-ngl):'}
+                      </label>
+                      <span className="font-mono text-xs font-bold text-sky-400 bg-sky-500/10 px-2.5 py-0.5 rounded-full border border-sky-500/25">
+                        {gpuLayers} Layers
+                      </span>
+                    </div>
+
+                    <input
+                      type="range"
+                      min={0}
+                      max={99}
+                      value={gpuLayers}
+                      onChange={(e) => setGpuLayers(parseInt(e.target.value, 10))}
+                      className="w-full accent-sky-400 h-2 bg-[#0d1117] rounded-lg cursor-pointer"
+                    />
+
+                    {/* Quick Preset Buttons */}
+                    <div className="flex items-center space-x-2 pt-1 flex-wrap gap-y-1">
+                      <span className="text-[10px] text-gray-400 font-mono mr-1">
+                        {currentLang === 'vi' ? 'Gợi ý nhanh:' : 'Presets:'}
+                      </span>
+                      {[
+                        { label: currentLang === 'vi' ? 'Chỉ CPU (0)' : 'CPU Only (0)', val: 0 },
+                        { label: 'GTX 1650 (21)', val: 21 },
+                        { label: 'GTX 1650 Max (28)', val: 28 },
+                        { label: currentLang === 'vi' ? '100% GPU (99)' : 'Max GPU (99)', val: 99 },
+                      ].map((item) => (
+                        <button
+                          key={item.val}
+                          type="button"
+                          onClick={() => setGpuLayers(item.val)}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-mono border transition-all ${
+                            gpuLayers === item.val
+                              ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-bold'
+                              : 'bg-[#0d1117] text-gray-400 border-[#30363d] hover:text-white'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Live Strategy Indicator */}
+                    <div className="p-3 rounded-xl bg-[#0d1117] border border-[#30363d] grid grid-cols-2 gap-3 text-xs mt-2">
+                      <div className="space-y-1">
+                        <span className="text-[10px] uppercase font-bold text-gray-400 block">
+                          {currentLang === 'vi' ? 'Mô hình nhỏ (1B - 3B):' : 'Small Models (1B - 3B):'}
+                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`w-2 h-2 rounded-full ${gpuLayers > 0 ? 'bg-emerald-400' : 'bg-gray-400'}`}></span>
+                          <span className={`font-semibold ${gpuLayers > 0 ? 'text-emerald-400' : 'text-gray-300'}`}>
+                            {gpuLayers === 0
+                              ? (currentLang === 'vi' ? 'Chạy 100% trên CPU' : '100% CPU')
+                              : gpuLayers >= 16
+                              ? (currentLang === 'vi' ? '⚡ Full GPU Offload (100% VRAM)' : '⚡ Full GPU Offload')
+                              : (currentLang === 'vi' ? `Hybrid (${gpuLayers} GPU)` : `Hybrid (${gpuLayers} GPU)`)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 font-mono">
+                          {gpuLayers > 0 ? 'Tốc độ cực nhanh: ~45 - 65 tokens/s' : 'Tốc độ: ~8 - 12 tokens/s'}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1 border-l border-[#30363d] pl-3">
+                        <span className="text-[10px] uppercase font-bold text-gray-400 block">
+                          {currentLang === 'vi' ? 'Mô hình vừa (7B - 8B):' : 'Medium Models (7B - 8B):'}
+                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`w-2 h-2 rounded-full ${gpuLayers >= 21 ? 'bg-amber-400' : gpuLayers > 0 ? 'bg-sky-400' : 'bg-gray-400'}`}></span>
+                          <span className={`font-semibold ${gpuLayers >= 21 ? 'text-amber-400' : gpuLayers > 0 ? 'text-sky-300' : 'text-gray-300'}`}>
+                            {gpuLayers === 0
+                              ? (currentLang === 'vi' ? 'Chạy 100% trên CPU' : '100% CPU')
+                              : gpuLayers >= 32
+                              ? (currentLang === 'vi' ? 'Full GPU (Cần >6GB VRAM)' : 'Full GPU (>6GB VRAM)')
+                              : (currentLang === 'vi' ? `⚡ Hybrid (${gpuLayers} GPU / ${Math.max(0, 32 - gpuLayers)} CPU)` : `⚡ Hybrid (${gpuLayers} GPU)`)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 font-mono">
+                          {gpuLayers >= 21
+                            ? 'Tốc độ: ~10 - 16 t/s (Tối ưu GTX 1650)'
+                            : gpuLayers > 0
+                            ? 'Tốc độ: ~7 - 10 tokens/s'
+                            : 'Tốc độ: ~3 - 6 tokens/s'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Context Size & CPU Threads */}
+                  <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-semibold text-gray-200 block">
+                        {currentLang === 'vi' ? 'Độ dài ngữ cảnh (-c Context Size):' : 'Context Window (-c):'}
+                      </span>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {[2048, 4096, 8192, 16384].map((sz) => (
+                          <button
+                            key={sz}
+                            type="button"
+                            onClick={() => setContextSize(sz)}
+                            className={`py-1.5 text-center font-mono text-xs rounded-lg border transition-all ${
+                              contextSize === sz
+                                ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-bold'
+                                : 'bg-[#0d1117] text-gray-400 border-[#30363d] hover:text-white hover:bg-[#21262d]'
+                            }`}
+                          >
+                            {sz}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-semibold text-gray-200 block">
+                        {currentLang === 'vi' ? 'Số luồng CPU xử lý (-t Threads):' : 'CPU Threads (-t):'}
+                      </span>
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {[2, 4, 6, 8, 12].map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setCpuThreads(t)}
+                            className={`py-1.5 text-center font-mono text-xs rounded-lg border transition-all ${
+                              cpuThreads === t
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                                : 'bg-[#0d1117] text-gray-400 border-[#30363d] hover:text-white hover:bg-[#21262d]'
+                            }`}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Flash Attention Toggle */}
+                  <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-white block">Flash Attention (-fa)</span>
+                      <p className="text-[10px] text-gray-400">
+                        {currentLang === 'vi'
+                          ? 'Tối ưu hóa GPU CUDA giúp tiết kiệm ~30% VRAM và tăng tốc sinh văn bản dài.'
+                          : 'CUDA optimization saving ~30% VRAM and speeding up long contexts.'}
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={flashAttention}
+                        onChange={(e) => setFlashAttention(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-[#21262d] border border-[#30363d] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Smart Offload Policy Note */}
                 <div className="p-4 rounded-xl bg-[#161b22] border border-[#30363d] space-y-2 shadow-sm">
                   <span className="font-bold text-xs text-white">Smart Offload Policy:</span>
                   <p className="text-[11px] text-gray-400 leading-relaxed">
-                    Auto-tuner allocates layers to GPU VRAM while reserving headroom for the operating system display. Remaining layers run on CPU system RAM with Flash Attention.
+                    Hệ thống sẽ nạp các layer mô hình vào GPU VRAM theo số lượng bạn đã chỉ định ở trên, phần layer còn lại sẽ chạy kết hợp trên RAM hệ thống và CPU. Đối với dòng card NVIDIA GTX 1650 (4GB VRAM), mức thiết lập khuyến nghị tối ưu là 21 - 28 layers với ngữ cảnh 4096 tokens.
                   </p>
                 </div>
               </div>
@@ -2194,6 +2379,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Custom Confirmation Modal: Delete Model from Disk */}
+      {deleteConfirmModel && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDeleteConfirmModel(null);
+          }}
+        >
+          <div className="w-full max-w-md bg-[#161b22] border border-rose-500/30 rounded-2xl shadow-2xl p-5 space-y-4 animate-scale-up">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">
+                  {currentLang === 'vi' ? 'Xác nhận xóa mô hình' : 'Confirm Model Deletion'}
+                </h3>
+                <p className="text-xs text-gray-400">
+                  {currentLang === 'vi' ? 'Hành động này không thể hoàn tác' : 'This action cannot be undone'}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-300 leading-relaxed">
+              {currentLang === 'vi'
+                ? 'Bạn có chắc chắn muốn xóa vĩnh viễn tệp mô hình này khỏi ổ cứng không?'
+                : 'Are you sure you want to permanently delete this model file from disk?'}
+            </p>
+
+            <div className="p-3 rounded-xl bg-[#0d1117] border border-[#30363d] font-mono text-xs text-rose-300 truncate">
+              {deleteConfirmModel.name} ({deleteConfirmModel.filename})
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmModel(null)}
+                className="px-4 py-2 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-semibold transition-colors"
+              >
+                {currentLang === 'vi' ? 'Hủy' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={executeDeleteModel}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white text-xs font-bold shadow-lg shadow-rose-500/20 transition-all flex items-center space-x-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{currentLang === 'vi' ? 'Xóa vĩnh viễn' : 'Delete Permanently'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

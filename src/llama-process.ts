@@ -1,4 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import type { LlamaServerConfig } from './types.js';
 
 export interface ProcessStatus {
@@ -6,6 +9,8 @@ export interface ProcessStatus {
   pid?: number;
   port: number;
   modelPath?: string;
+  binaryPath?: string | null;
+  hasBinary: boolean;
   loadedLayers?: { gpu: number; total: number };
   recentLogs: string[];
 }
@@ -39,7 +44,7 @@ export class LlamaProcessManager {
     ];
 
     if (config.flashAttention) {
-      args.push('-fa');
+      args.push('-fa', 'on');
     }
 
     if (config.kvCacheQuant && config.kvCacheQuant !== 'f16') {
@@ -49,7 +54,15 @@ export class LlamaProcessManager {
     this.appendLog(`[Manager] Spawning: ${config.binaryPath} ${args.join(' ')}`);
 
     try {
+      const binDir = path.dirname(config.binaryPath);
+      const env = {
+        ...process.env,
+        PATH: `${binDir};${process.env.PATH || ''}`,
+      };
+
       this.childProcess = spawn(config.binaryPath, args, {
+        cwd: binDir,
+        env,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -103,6 +116,20 @@ export class LlamaProcessManager {
   }
 
   /**
+   * Check if process is actively running
+   */
+  public isRunning(): boolean {
+    return this.childProcess !== null;
+  }
+
+  /**
+   * Currently active model path
+   */
+  public getModelPath(): string | null {
+    return this.currentConfig?.modelPath || null;
+  }
+
+  /**
    * Check if endpoint /health returns 200 OK
    */
   public async isHealthy(): Promise<boolean> {
@@ -117,12 +144,53 @@ export class LlamaProcessManager {
     }
   }
 
+  /**
+   * Locate llama-server binary on disk, in project bin/, or in PATH
+   */
+  public findBinaryPath(customPath?: string): string | null {
+    if (customPath && fs.existsSync(customPath)) {
+      return customPath;
+    }
+
+    const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || 'C:\\';
+    const isWin = process.platform === 'win32';
+    const binaryName = isWin ? 'llama-server.exe' : 'llama-server';
+
+    const candidates = [
+      path.join(home, 'LocalAI', 'bin', binaryName),
+      path.resolve(process.cwd(), 'bin', binaryName),
+      path.resolve(process.cwd(), binaryName),
+      path.join(home, 'LocalAI', binaryName),
+      ...((process as any).resourcesPath ? [path.join((process as any).resourcesPath, 'bin', binaryName)] : []),
+    ];
+
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        return cand;
+      }
+    }
+
+    // Try finding via `where` on Windows or `which` on Unix
+    try {
+      const checkCmd = isWin ? `where.exe ${binaryName}` : `which ${binaryName}`;
+      const found = execSync(checkCmd, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim().split('\n')[0]?.trim();
+      if (found && fs.existsSync(found)) {
+        return found;
+      }
+    } catch {}
+
+    return null;
+  }
+
   public getStatus(): ProcessStatus {
+    const binary = this.findBinaryPath();
     return {
       isRunning: this.childProcess !== null && !this.childProcess.killed,
       pid: this.childProcess?.pid,
       port: this.currentConfig?.port || 8080,
       modelPath: this.currentConfig?.modelPath,
+      binaryPath: binary,
+      hasBinary: binary !== null,
       loadedLayers: this.loadedLayers,
       recentLogs: this.recentLogs.slice(-20),
     };
