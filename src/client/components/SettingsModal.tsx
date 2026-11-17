@@ -235,7 +235,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       )
     : null;
 
-  const currentProvider = providers.find((p) => p.id === selectedProviderId) || providers[0];
+  const externalProviders = providers.filter((p) => p.id !== 'local-llama');
+  const currentProvider = externalProviders.find((p) => p.id === selectedProviderId) || externalProviders[0] || null;
 
   const handleSync = async () => {
     if (!currentProvider) return;
@@ -264,6 +265,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           modelId: model.id,
           modelName: model.name,
           fileSizeBytes: model.fileSizeBytes,
+          filename: model.filename,
         }),
       });
 
@@ -277,11 +279,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           if (myTask.status === 'completed') {
             clearInterval(interval);
             setDownloadingId(null);
+            if (onSyncProvider) {
+              onSyncProvider('local-llama');
+            }
           }
         }
       }, 700);
     } catch {
       setDownloadingId(null);
+    }
+  };
+
+  const handleDeleteModel = async (model: EnrichedModelItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const confirmed = window.confirm(
+      currentLang === 'vi'
+        ? `Bạn có chắc muốn xóa mô hình "${model.name}" khỏi ổ cứng?`
+        : `Delete "${model.name}" from disk?`
+    );
+    if (!confirmed) return;
+
+    const localModels = providers.find((p) => p.id === 'local-llama')?.models || [];
+    const targetFile =
+      localModels.find((f) => {
+        const fl = f.toLowerCase();
+        return (
+          fl === model.filename.toLowerCase() ||
+          fl === `${model.id.toLowerCase()}.gguf` ||
+          fl.includes(model.id.toLowerCase())
+        );
+      }) || model.filename;
+
+    try {
+      const res = await fetch(getApiUrl(`/api/models/local/${encodeURIComponent(targetFile)}`), {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        if (onSyncProvider) {
+          await onSyncProvider('local-llama');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete model file:', err);
     }
   };
 
@@ -428,10 +467,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } else {
       await fetch(getApiUrl(`/api/providers/${id}`), { method: 'DELETE' });
     }
-    if (selectedProviderId === id) {
-      const remaining = providers.filter((p) => p.id !== id);
-      setSelectedProviderId(remaining[0]?.id || 'local-llama');
-    }
+    const remaining = externalProviders.filter((p) => p.id !== id);
+    setSelectedProviderId(remaining[0]?.id || '');
   };
 
   const navItems = [
@@ -456,13 +493,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             onClick={onClose}
             className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-all group shadow-sm"
-            title={`${tr.backToChat} (Esc)`}
+            title={tr.backToChat}
           >
             <ArrowLeft className="w-4 h-4 text-sky-400 group-hover:-translate-x-0.5 transition-transform" />
             <span className="font-bold">{tr.backToChat}</span>
-            <kbd className="text-[10px] bg-[#0d1117] px-1.5 py-0.5 rounded text-gray-400 border border-[#30363d] font-mono">
-              Esc
-            </kbd>
           </button>
 
           <div className="h-5 w-[1px] bg-[#30363d]" />
@@ -534,23 +568,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-xs font-bold text-gray-200">
                     {currentLang === 'vi' ? 'Kho Mô Hình GGUF' : 'GGUF Model Hub'}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsAddingCustomModel(!isAddingCustomModel)}
-                    className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-[11px] font-semibold transition-all"
-                  >
-                    {isAddingCustomModel ? (
-                      <>
-                        <X className="w-3.5 h-3.5" />
-                        <span>{currentLang === 'vi' ? 'Đóng' : 'Close'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>{currentLang === 'vi' ? 'Thêm từ Hugging Face' : 'Add from Hugging Face'}</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenFolder(systemPaths?.models || '')}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white border border-[#30363d] text-[11px] font-semibold transition-all"
+                      title={currentLang === 'vi' ? 'Mở thư mục models trên máy để thả tệp .gguf' : 'Open models folder in Explorer'}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{currentLang === 'vi' ? 'Mở thư mục' : 'Open Folder'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingCustomModel(!isAddingCustomModel)}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-[11px] font-semibold transition-all"
+                    >
+                      {isAddingCustomModel ? (
+                        <>
+                          <X className="w-3.5 h-3.5" />
+                          <span>{currentLang === 'vi' ? 'Đóng' : 'Close'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{currentLang === 'vi' ? 'Thêm từ Hugging Face' : 'Add from Hugging Face'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Inline Add Custom Model Form */}
@@ -714,8 +759,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       return true;
                     });
 
-                    const downloaded = filtered.filter((m) => downloadProgress[m.id] === 100);
-                    const available = filtered.filter((m) => downloadProgress[m.id] !== 100);
+                    const localModels = providers.find((p) => p.id === 'local-llama')?.models || [];
+                    const isModelOnDisk = (m: EnrichedModelItem) => {
+                      const mFn = m.filename.toLowerCase();
+                      const mIdGguf = `${m.id.toLowerCase()}.gguf`;
+                      return (
+                        localModels.some((f) => {
+                          const fl = f.toLowerCase();
+                          return (
+                            fl === mFn ||
+                            fl === mIdGguf ||
+                            fl.replace(/-/g, '_') === mFn.replace(/-/g, '_') ||
+                            fl.replace('.gguf', '') === m.id.toLowerCase()
+                          );
+                        }) || downloadProgress[m.id] === 100
+                      );
+                    };
+
+                    const downloaded = filtered.filter((m) => isModelOnDisk(m));
+                    const available = filtered.filter((m) => !isModelOnDisk(m));
 
                     const renderCard = (m: EnrichedModelItem, isDownloaded: boolean) => {
                       const isCurSelected = selectedHubModel?.id === m.id;
@@ -753,10 +815,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {/* Dynamic Tag & Status */}
                           <div className="mt-2 flex items-center justify-between">
                             {isDownloaded ? (
-                              <span className="text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/30 flex items-center space-x-1">
-                                <CheckCircle2 className="w-3 h-3 mr-0.5 inline" />
-                                <span>{currentLang === 'vi' ? 'Đã tải trên máy' : 'Downloaded'}</span>
-                              </span>
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/30 flex items-center space-x-1">
+                                  <CheckCircle2 className="w-3 h-3 mr-0.5 inline" />
+                                  <span>{currentLang === 'vi' ? 'Đã tải trên máy' : 'Downloaded'}</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeleteModel(m, e)}
+                                  className="p-1 rounded-lg hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 transition-colors"
+                                  title={currentLang === 'vi' ? 'Xóa model khỏi máy' : 'Delete model file'}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
                             ) : (
                               <span
                                 className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full border ${comp.badgeColor}`}
@@ -1016,10 +1088,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="p-4 rounded-2xl bg-[#161b22] border border-[#30363d] flex items-center justify-between shadow-sm">
                       {/* Download button */}
                       <div className="flex items-center space-x-2">
-                        {downloadProgress[selectedHubModel.id] === 100 ? (
-                          <div className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center space-x-1.5 border border-emerald-500/30">
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>Đã tải về máy</span>
+                        {((providers.find((p) => p.id === 'local-llama')?.models || []).some((f) => {
+                          const fl = f.toLowerCase();
+                          return (
+                            fl === selectedHubModel.filename.toLowerCase() ||
+                            fl === `${selectedHubModel.id.toLowerCase()}.gguf` ||
+                            fl.includes(selectedHubModel.id.toLowerCase())
+                          );
+                        }) || downloadProgress[selectedHubModel.id] === 100) ? (
+                          <div className="flex items-center space-x-2">
+                            <div className="px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center space-x-1.5 border border-emerald-500/30">
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>{currentLang === 'vi' ? 'Đã tải về máy' : 'Downloaded'}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteModel(selectedHubModel)}
+                              className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-all flex items-center space-x-1.5"
+                              title={currentLang === 'vi' ? 'Xóa tệp .gguf này khỏi máy tính' : 'Delete model from disk'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                              <span>{currentLang === 'vi' ? 'Xóa model' : 'Delete'}</span>
+                            </button>
                           </div>
                         ) : downloadingId === selectedHubModel.id ? (
                           <div className="px-3.5 py-2 rounded-xl bg-sky-500/20 text-sky-300 font-mono text-xs flex items-center space-x-2 border border-sky-500/30">
@@ -1210,7 +1300,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             {/* 4. PROVIDERS & KEYS */}
-            {activeCategory === 'providers' && currentProvider && (
+            {activeCategory === 'providers' && (
               <div className="space-y-4 animate-fade-in">
                 {/* Providers Header & Add Button */}
                 <div className="flex items-center justify-between pb-1">
@@ -1220,8 +1310,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </h3>
                     <p className="text-[11px] text-gray-400">
                       {currentLang === 'vi'
-                        ? 'Mặc định là llama.cpp (CUDA) tích hợp sẵn. Bạn có thể thêm Ollama, LM Studio, FreeLLM hoặc API tùy chỉnh.'
-                        : 'Default is embedded llama.cpp (CUDA). Add Ollama, LM Studio, FreeLLM or custom endpoints.'}
+                        ? 'Kết nối Ollama, LM Studio, vLLM hoặc Cloud API (OpenAI, DeepSeek, Claude, v.v.).'
+                        : 'Connect Ollama, LM Studio, vLLM or Cloud APIs. Embedded llama.cpp auto-activates with downloaded models.'}
                     </p>
                   </div>
                   <button
@@ -1364,23 +1454,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
 
                 {/* Providers Cards Grid */}
-                <div className="grid grid-cols-3 gap-2.5">
-                  {providers.map((p) => {
-                    const isSelected = selectedProviderId === p.id;
-                    const canDelete = p.id !== 'local-llama';
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => setSelectedProviderId(p.id)}
-                        className={`p-3 rounded-xl border text-left cursor-pointer transition-all relative group ${
-                          isSelected
-                            ? 'border-sky-500 bg-sky-500/10 text-sky-400 shadow-sm ring-1 ring-sky-500/30'
-                            : 'border-[#30363d] bg-[#161b22] text-gray-300 hover:bg-[#21262d] hover:border-gray-600'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="font-bold text-xs truncate max-w-[170px]">{p.name}</div>
-                          {canDelete && (
+                {externalProviders.length === 0 ? (
+                  <div className="p-8 text-center bg-[#161b22] border border-[#30363d] rounded-2xl space-y-2">
+                    <Globe className="w-8 h-8 text-sky-400 mx-auto opacity-80" />
+                    <div className="font-bold text-xs text-white">
+                      {currentLang === 'vi' ? 'Chưa có nhà cung cấp ngoài nào được kết nối' : 'No external providers added yet'}
+                    </div>
+                    <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
+                      {currentLang === 'vi'
+                        ? 'Động cơ nội bộ llama.cpp đã sẵn sàng và tự động chạy khi tải model từ Model Hub. Bạn có thể thêm Ollama hoặc Cloud API bất cứ lúc nào.'
+                        : 'Embedded llama.cpp is ready and auto-runs downloaded models. You can add Ollama or Cloud APIs anytime.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {externalProviders.map((p) => {
+                      const isSelected = (currentProvider?.id || '') === p.id;
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => setSelectedProviderId(p.id)}
+                          className={`p-3 rounded-xl border text-left cursor-pointer transition-all relative group ${
+                            isSelected
+                              ? 'border-sky-500 bg-sky-500/10 text-sky-400 shadow-sm ring-1 ring-sky-500/30'
+                              : 'border-[#30363d] bg-[#161b22] text-gray-300 hover:bg-[#21262d] hover:border-gray-600'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="font-bold text-xs truncate max-w-[170px]">{p.name}</div>
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1392,28 +1493,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between mt-1 text-[10px] text-gray-400 font-mono">
-                          <span className="uppercase text-[9px] px-1.5 py-0.5 rounded bg-white/5 border border-white/5">
-                            {p.type}
-                          </span>
-                          <div className="flex items-center space-x-1.5">
-                            <span className={p.enabled !== false ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>
-                              {p.enabled !== false ? '● ' + (currentLang === 'vi' ? 'Bật' : 'On') : '○ ' + (currentLang === 'vi' ? 'Tắt' : 'Off')}
+                          </div>
+                          <div className="flex items-center justify-between mt-1 text-[10px] text-gray-400 font-mono">
+                            <span className="uppercase text-[9px] px-1.5 py-0.5 rounded bg-white/5 border border-white/5">
+                              {p.type}
                             </span>
-                            {p.isDefault && (
-                              <span className="text-sky-400 font-semibold">★ {currentLang === 'vi' ? 'Mặc định' : 'Default'}</span>
-                            )}
+                            <div className="flex items-center space-x-1.5">
+                              <span className={p.enabled !== false ? 'text-emerald-400 font-semibold' : 'text-gray-500'}>
+                                {p.enabled !== false ? '● ' + (currentLang === 'vi' ? 'Bật' : 'On') : '○ ' + (currentLang === 'vi' ? 'Tắt' : 'Off')}
+                              </span>
+                              {p.isDefault && (
+                                <span className="text-sky-400 font-semibold">★ {currentLang === 'vi' ? 'Mặc định' : 'Default'}</span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* Selected Provider Editor */}
-                <div className="p-4 rounded-xl bg-[#161b22] border border-[#30363d] space-y-3 shadow-sm">
+                {currentProvider && (
+                  <div className="p-4 rounded-xl bg-[#161b22] border border-[#30363d] space-y-3 shadow-sm">
                   <div className="flex items-center justify-between border-b border-[#30363d] pb-2">
                     <span className="font-bold text-xs text-white">
                       {currentLang === 'vi' ? 'Cấu hình:' : 'Configuring:'} {currentProvider.name}
@@ -1517,6 +1619,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     )}
                   </div>
                 </div>
+                )}
               </div>
             )}
 
@@ -1762,29 +1865,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="p-2 rounded-lg bg-[#161b22] border border-[#30363d] font-mono text-[11px] text-gray-300 break-all select-all">
                       {systemPaths?.current || 'c:\\Tam\\Code\\LocalAI'}
                     </div>
-                  </div>
-
-                  {/* Cache Cleanup */}
-                  <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] flex items-center justify-between">
-                    <div>
-                      <span className="font-bold text-xs text-white">
-                        {currentLang === 'vi' ? '🧹 Bộ nhớ đệm & Nhật ký tạm thời' : '🧹 App Temporary Cache & Logs'}
-                      </span>
-                      <p className="text-[10px] text-gray-500 mt-0.5">
-                        {currentLang === 'vi' ? 'Xóa phiên làm việc lưu đệm và nhật ký tạm thời để giải phóng dung lượng' : 'Clear session cache and temporary logs to free up storage space'}
-                      </p>
-                      {cacheMessage && (
-                        <p className="text-[11px] text-emerald-400 font-mono mt-1">{cacheMessage}</p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleClearCache}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-all"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>{currentLang === 'vi' ? 'Xóa bộ nhớ đệm' : 'Clear Cache'}</span>
-                    </button>
                   </div>
                 </div>
               </div>

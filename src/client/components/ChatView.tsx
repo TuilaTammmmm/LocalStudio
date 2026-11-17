@@ -76,6 +76,7 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
   const handleChatDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
     setIsDragOverChat(true);
   };
 
@@ -89,6 +90,17 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
     e.preventDefault();
     e.stopPropagation();
     setIsDragOverChat(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const f = e.dataTransfer.files[i];
+        const p = (f as any).path || f.name;
+        if (p && onAttachFile) {
+          onAttachFile(p);
+        }
+      }
+      return;
+    }
 
     const localAiData = e.dataTransfer.getData('application/x-localai-file');
     const plainText = e.dataTransfer.getData('text/plain');

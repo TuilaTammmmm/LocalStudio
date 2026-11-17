@@ -31,19 +31,8 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
   const [name, setName] = useState('');
   const [folderPath, setFolderPath] = useState('');
   const [isPicking, setIsPicking] = useState(false);
-  const [systemFolders, setSystemFolders] = useState<SystemFolders | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fallbackInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (isOpen) {
-      // Fetch system folders for quick chips
-      fetch(getApiUrl('/api/dialog/system-folders'))
-        .then((res) => res.json())
-        .then((data) => setSystemFolders(data))
-        .catch(() => null);
-    }
-  }, [isOpen]);
 
   // Close on Escape
   useEffect(() => {
@@ -61,6 +50,31 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
   const handlePickNativeFolder = async () => {
     setIsPicking(true);
     setErrorMessage(null);
+
+    // 1. If running inside Tauri desktop app, use Tauri native open dialog
+    if (typeof window !== 'undefined' && (window as any).__TAURI__?.dialog) {
+      try {
+        const { open } = (window as any).__TAURI__.dialog;
+        const selected = await open({
+          directory: true,
+          multiple: false,
+          title: currentLang === 'vi' ? 'Chọn thư mục dự án' : 'Select Project Folder',
+        });
+        if (selected && typeof selected === 'string') {
+          setFolderPath(selected);
+          if (!name.trim()) {
+            const baseName = selected.split(/[\\/]/).pop() || '';
+            setName(baseName);
+          }
+          setIsPicking(false);
+          return;
+        }
+      } catch (e) {
+        // Fall back to server dialog
+      }
+    }
+
+    // 2. Call backend dialog picker
     try {
       const res = await fetch(getApiUrl('/api/dialog/pick-folder'), {
         method: 'POST',
@@ -80,13 +94,6 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
       );
     } finally {
       setIsPicking(false);
-    }
-  };
-
-  const handleSelectQuickFolder = (path: string, defaultName: string) => {
-    setFolderPath(path);
-    if (!name.trim()) {
-      setName(defaultName);
     }
   };
 
@@ -178,35 +185,6 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
                 )}
               </button>
             </div>
-
-            {/* Quick Suggestions */}
-            {systemFolders && (
-              <div className="pt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
-                <span className="text-gray-500">{tr.quickSuggestions}</span>
-                <button
-                  type="button"
-                  onClick={() => handleSelectQuickFolder(systemFolders.current, 'Current Project')}
-                  className="px-2 py-0.5 rounded-md bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] transition-colors truncate max-w-[140px]"
-                  title={systemFolders.current}
-                >
-                  ⚡ {tr.currentRepo}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectQuickFolder(systemFolders.desktop, 'Desktop')}
-                  className="px-2 py-0.5 rounded-md bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] transition-colors"
-                >
-                  🖥️ {tr.desktop}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectQuickFolder(systemFolders.documents, 'Documents')}
-                  className="px-2 py-0.5 rounded-md bg-[#21262d] hover:bg-[#30363d] text-gray-300 border border-[#30363d] transition-colors"
-                >
-                  📁 {tr.documents}
-                </button>
-              </div>
-            )}
           </div>
 
           {/* 2. Workspace Display Name */}

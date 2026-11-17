@@ -53,13 +53,18 @@ class RootErrorBoundary extends Component<Props, State> {
             padding: '16px',
             borderRadius: '8px',
             border: '1px solid #30363d',
-            maxWidth: '640px',
+            maxWidth: '720px',
+            maxHeight: '300px',
             overflow: 'auto',
-            fontSize: '12px',
-            color: '#8b949e',
+            fontSize: '11px',
+            lineHeight: '1.5',
+            color: '#f85149',
             marginBottom: '16px',
+            textAlign: 'left',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
           }}>
-            {this.state.error?.message || 'Unknown error'}
+            {this.state.error?.stack || this.state.error?.message || 'Unknown error'}
           </pre>
           <button
             onClick={() => window.location.reload()}

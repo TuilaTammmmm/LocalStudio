@@ -69,14 +69,9 @@ export default function App() {
         setSkillFolders(skillsData.folders);
         setIsOnline(Boolean(hw || provData.providers.length > 0));
 
-        // If no workspaces, create default workspace for this repo
+        // If no workspaces, start in General Chat mode (No Project needed)
         if (wsList.length === 0) {
-          const defaultWs = await api.createWorkspace({
-            name: 'LocalAI Workspace',
-            folderPath: 'c:\\Tam\\Code\\LocalAI',
-          });
-          setWorkspaces([defaultWs]);
-          setActiveWorkspace(defaultWs);
+          setActiveWorkspace(null);
         } else {
           setActiveWorkspace(wsList[0]);
         }
@@ -119,9 +114,11 @@ export default function App() {
   const handleRenameSession = async (sessionId: string, newTitle: string) => {
     try {
       const updated = await api.updateSession(sessionId, { title: newTitle });
-      setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)));
-      if (activeSession?.id === sessionId) {
-        setActiveSession(updated);
+      if (updated && updated.id) {
+        setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)));
+        if (activeSession?.id === sessionId) {
+          setActiveSession(updated);
+        }
       }
     } catch (err) {
       console.error('Failed to rename session:', err);
@@ -131,36 +128,60 @@ export default function App() {
   const handleRenameWorkspace = async (workspaceId: string, newName: string) => {
     try {
       const updated = await api.updateWorkspace(workspaceId, { name: newName });
-      setWorkspaces((prev) => prev.map((w) => (w.id === workspaceId ? updated : w)));
-      if (activeWorkspace?.id === workspaceId) {
-        setActiveWorkspace(updated);
+      if (updated && updated.id) {
+        setWorkspaces((prev) => prev.map((w) => (w.id === workspaceId ? updated : w)));
+        if (activeWorkspace?.id === workspaceId) {
+          setActiveWorkspace(updated);
+        }
       }
     } catch (err) {
       console.error('Failed to rename workspace:', err);
     }
   };
 
-  // 2. When active workspace changes: Load tree & sessions
+  const handleDeleteWorkspace = async (workspaceId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await api.deleteWorkspace(workspaceId);
+      setWorkspaces((prev) => prev.filter((w) => w.id !== workspaceId));
+      if (activeWorkspace?.id === workspaceId) {
+        const remaining = workspaces.filter((w) => w.id !== workspaceId);
+        setActiveWorkspace(remaining.length > 0 ? remaining[0] : null);
+      }
+    } catch (err) {
+      console.error('Failed to delete workspace:', err);
+    }
+  };
+
+  // 2. When active workspace changes: Load tree, sessions & pinned files (supports No-Project mode)
   useEffect(() => {
-    if (!activeWorkspace) return;
+    const wsId = activeWorkspace?.id || 'no-project';
 
-    api.getWorkspaceTree(activeWorkspace.id).then((res) => {
-      setFileTree(res.tree || []);
-    }).catch(() => setFileTree([]));
+    if (activeWorkspace) {
+      setPinnedFiles(activeWorkspace.pinnedFiles || []);
+      api.getWorkspaceTree(activeWorkspace.id).then((res) => {
+        setFileTree(res.tree || []);
+      }).catch(() => setFileTree([]));
+    } else {
+      setPinnedFiles([]);
+      setFileTree([]);
+    }
 
-    api.getSessions(activeWorkspace.id).then((sessList) => {
+    api.getSessions(wsId).then((sessList) => {
       setSessions(sessList);
       if (sessList.length > 0) {
         setActiveSession(sessList[0]);
       } else {
-        // Auto-create initial chat session
-        api.createSession(activeWorkspace.id, 'Welcome & General Discussion').then((newSess) => {
+        const defaultTitle = activeWorkspace
+          ? 'Welcome & General Discussion'
+          : (lang === 'vi' ? 'Trò chuyện chung' : 'General Discussion');
+        api.createSession(wsId, defaultTitle).then((newSess) => {
           setSessions([newSess]);
           setActiveSession(newSess);
-        });
+        }).catch(() => {});
       }
     }).catch(() => setSessions([]));
-  }, [activeWorkspace?.id]);
+  }, [activeWorkspace?.id, lang]);
 
   // 3. When active session changes: Load messages
   useEffect(() => {
@@ -340,8 +361,8 @@ export default function App() {
   };
 
   const handleNewChat = async () => {
-    if (!activeWorkspace) return;
-    const session = await api.createSession(activeWorkspace.id, `Chat ${sessions.length + 1}`);
+    const wsId = activeWorkspace?.id || 'no-project';
+    const session = await api.createSession(wsId, `Chat ${sessions.length + 1}`);
     setSessions((prev) => [session, ...prev]);
     setActiveSession(session);
   };
@@ -357,9 +378,13 @@ export default function App() {
   };
 
   const handleTogglePinFile = (relPath: string) => {
-    setPinnedFiles((prev) =>
-      prev.includes(relPath) ? prev.filter((f) => f !== relPath) : [...prev, relPath]
-    );
+    setPinnedFiles((prev) => {
+      const next = prev.includes(relPath) ? prev.filter((f) => f !== relPath) : [...prev, relPath];
+      if (activeWorkspace) {
+        api.updateWorkspace(activeWorkspace.id, { pinnedFiles: next }).catch(() => {});
+      }
+      return next;
+    });
   };
 
   // Global Hotkeys: Ctrl+, (Settings), Ctrl+N (New Chat), Ctrl+O (New/Open Workspace), Ctrl+B (Toggle Right Sidebar), Esc (Close modals)
@@ -437,6 +462,7 @@ export default function App() {
           onNewChat={handleNewChat}
           onNewWorkspace={() => setIsNewWorkspaceOpen(true)}
           onDeleteSession={handleDeleteSession}
+          onDeleteWorkspace={handleDeleteWorkspace}
           onRenameSession={handleRenameSession}
           onRenameWorkspace={handleRenameWorkspace}
           onOpenSettings={() => setIsSettingsOpen(true)}

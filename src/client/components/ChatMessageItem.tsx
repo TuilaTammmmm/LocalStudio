@@ -81,7 +81,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
       <div className="flex-1 space-y-2 min-w-0">
         <div className="flex items-center space-x-2">
           <span className="font-semibold text-xs tracking-wide text-gray-200">
-            {isUser ? 'You' : 'LocalAI Assistant'}
+            {isUser ? 'Bạn' : 'Trợ lý LocalAI'}
           </span>
           {message.modelUsed && (
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#21262d] text-sky-400 border border-[#30363d]">
@@ -102,9 +102,9 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
             >
               <div className="flex items-center space-x-2">
                 <Brain className="w-4 h-4 text-amber-400 animate-pulse-subtle" />
-                <span className="font-semibold text-[11px] tracking-wide">Thought Process</span>
+                <span className="font-semibold text-[11px] tracking-wide">Quá trình suy luận</span>
                 <span className="text-[10px] text-amber-400/70 font-mono bg-amber-500/10 px-1.5 py-0.2 rounded">
-                  Reasoning Active
+                  Đang suy luận
                 </span>
               </div>
               {isThinkingOpen ? (
@@ -147,12 +147,12 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
               {copied ? (
                 <>
                   <Check className="w-3 h-3 text-emerald-400" />
-                  <span className="text-emerald-400 font-medium">Copied to Clipboard</span>
+                  <span className="text-emerald-400 font-medium">Đã sao chép</span>
                 </>
               ) : (
                 <>
                   <Copy className="w-3 h-3" />
-                  <span>Copy</span>
+                  <span>Sao chép</span>
                 </>
               )}
             </button>
@@ -204,12 +204,12 @@ const CodeBlock: React.FC<{ code: string; language: string }> = React.memo(({ co
           {copied ? (
             <>
               <Check className="w-3 h-3 text-emerald-400" />
-              <span className="text-emerald-400">Copied!</span>
+              <span className="text-emerald-400">Đã chép!</span>
             </>
           ) : (
             <>
               <Copy className="w-3 h-3" />
-              <span>Copy</span>
+              <span>Sao chép</span>
             </>
           )}
         </button>

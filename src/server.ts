@@ -143,11 +143,12 @@ export function createServer(
   });
 
   app.post('/api/models/download', async (c) => {
-    const { modelId, modelName, fileSizeBytes } = await c.req.json();
+    const { modelId, modelName, fileSizeBytes, filename } = await c.req.json();
     const task = await ModelDownloaderService.startDownload(
       modelId,
       modelName,
-      fileSizeBytes || 2_000_000_000
+      fileSizeBytes || 2_000_000_000,
+      filename
     );
     return c.json(task);
   });
@@ -156,6 +157,28 @@ export function createServer(
     const id = c.req.param('id');
     const canceled = ModelDownloaderService.cancelDownload(id);
     return c.json({ success: canceled });
+  });
+
+  app.delete('/api/models/local/:filename', (c) => {
+    const filename = c.req.param('filename');
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return c.json({ error: 'Invalid filename' }, 400);
+    }
+    const modelsDir = path.resolve(process.cwd(), 'models');
+    const target = path.join(modelsDir, filename);
+    if (fs.existsSync(target)) {
+      try {
+        fs.unlinkSync(target);
+        const localLlama = db.getProvider('local-llama');
+        if (localLlama) {
+          db.syncLocalModels(localLlama);
+        }
+        return c.json({ success: true });
+      } catch (err: any) {
+        return c.json({ error: err.message }, 500);
+      }
+    }
+    return c.json({ error: 'File not found' }, 404);
   });
 
   // 2. Workspaces & File Tree
@@ -497,17 +520,31 @@ export function createServer(
         const psScript = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class WinHelper {
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+"@
 $form = New-Object System.Windows.Forms.Form
 $form.TopMost = $true
-$form.Opacity = 0
+$form.StartPosition = 'CenterScreen'
+$form.WindowState = 'Minimized'
 $form.Show()
+$form.WindowState = 'Normal'
 $form.Activate()
+$form.BringToFront()
+[WinHelper]::SetForegroundWindow($form.Handle)
 $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-$dlg.Description = 'Select Project Folder'
+$dlg.Description = 'Chọn thư mục dự án LocalAI'
 $dlg.ShowNewFolderButton = $true
 if ($dlg.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
     Write-Output $dlg.SelectedPath
 }
+$form.Close()
 $form.Dispose()
 $dlg.Dispose()
 `.trim();

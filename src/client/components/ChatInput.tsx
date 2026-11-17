@@ -108,6 +108,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
     setIsDragOver(true);
   };
 
@@ -157,6 +158,30 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         const textContent = await file.text();
         const snippet = `\`\`\`${file.name}\n${textContent.slice(0, 4000)}\n\`\`\`\n`;
         setText((prev) => (prev ? `${prev}\n${snippet}` : snippet));
+      }
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            setAttachedImage({
+              name: file.name || `Pasted_Image_${Date.now().toString().slice(-4)}.png`,
+              dataUrl,
+            });
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
       }
     }
   };
@@ -416,6 +441,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={attachedImage ? tr.visionPlaceholder : tr.askPlaceholder}
           style={{ height: `${composerHeight}px` }}
           className="w-full bg-transparent text-gray-100 placeholder-gray-500 text-sm focus:outline-none resize-none overflow-y-auto leading-relaxed px-1"
@@ -575,8 +601,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   ) : (
                     <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                   )}
-                  <span className="font-semibold text-[11px] truncate max-w-[110px]">
-                    {isAutoRoute ? '🔮 Auto-Route' : activeModelName?.split('-')[0] || 'Model'}
+                  <span className="font-semibold text-[11px] truncate max-w-[130px]">
+                    {isAutoRoute ? '🔮 Auto-Route' : (activeModelName?.replace(/\.gguf$/i, '').split('-')[0] || activeModelName || 'Model')}
                   </span>
                   <ChevronDown className="w-3 h-3 text-gray-500 shrink-0" />
                 </button>
@@ -596,26 +622,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     </div>
 
                     <div className="max-h-56 overflow-y-auto space-y-1 pt-1">
-                      {/* Auto Route Option */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectModel('auto', true);
-                          setShowModelMenu(false);
-                        }}
-                        className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors ${
-                          isAutoRoute ? 'bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/40' : 'text-gray-300 hover:bg-[#21262d]'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-2">
-                          <Compass className="w-3.5 h-3.5 text-amber-400" />
-                          <div>
-                            <div className="font-semibold">{tr.autoRoute}</div>
-                            <div className="text-[10px] text-gray-400 leading-tight">{tr.autoRouteDesc}</div>
+                      {/* Auto Route Option (only shown if Auto-Route is active) */}
+                      {isAutoRoute && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectModel('auto', true);
+                            setShowModelMenu(false);
+                          }}
+                          className="w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/40"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <Compass className="w-3.5 h-3.5 text-amber-400" />
+                            <div>
+                              <div className="font-semibold">{tr.autoRoute}</div>
+                              <div className="text-[10px] text-gray-400 leading-tight">{tr.autoRouteDesc}</div>
+                            </div>
                           </div>
-                        </div>
-                        {isAutoRoute && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                      </button>
+                          <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        </button>
+                      )}
 
                       {/* Header for models of selected provider */}
                       <div className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between border-t border-[#30363d]/50 pt-1.5 mt-1">

@@ -10,6 +10,7 @@
     "dev:all": "concurrently \"tsx watch src/index.ts\" \"vite\"",
     "build:server": "tsc",
     "build:client": "tsc -p tsconfig.client.json && vite build",
+    "bundle:backend": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=src-tauri/resources/server.cjs",
     "build": "tsc && tsc -p tsconfig.client.json && vite build",
     "tauri": "node scripts/run-desktop.js",
     "desktop:dev": "node scripts/run-desktop.js dev",
@@ -33,6 +34,7 @@
     "yaml": "^2.7.0"
   },
   "devDependencies": {
+    "esbuild": "^0.25.0",
     "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^22.13.9",
     "@types/react": "^19.0.10",

@@ -371,14 +371,26 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
         {openTabs.includes('files') && activeTab === 'files' && (
           <div className="space-y-1 animate-fade-in">
             <div className="text-[11px] font-medium text-gray-400 mb-2 flex items-center justify-between">
-              <span className="font-semibold text-gray-300 truncate max-w-[180px]">
-                {activeWorkspace?.name ? `${activeWorkspace.name} - ${tr.projectExplorer}` : tr.projectExplorer}
+              <span className="font-semibold text-gray-300 truncate max-w-[200px]">
+                {activeWorkspace?.name || (currentLang === 'vi' ? 'Trò chuyện tự do' : 'General Chat')}
               </span>
               <span className="text-[10px] text-gray-500 font-sans">
                 {currentLang === 'vi' ? 'Bấm xem • Kéo vào Chat' : 'Preview • Drag to Chat'}
               </span>
             </div>
-            {fileTree.length === 0 ? (
+            {!activeWorkspace ? (
+              <div className="p-4 text-center rounded-xl bg-white/[0.02] border border-white/5 space-y-2 mt-2">
+                <Folder className="w-7 h-7 text-sky-400 mx-auto opacity-70" />
+                <p className="text-xs font-semibold text-gray-200">
+                  {currentLang === 'vi' ? 'Chế độ trò chuyện tự do' : 'General Chat Mode'}
+                </p>
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  {currentLang === 'vi'
+                    ? 'Bạn có thể đặt câu hỏi, dịch thuật, lập trình hoặc kéo thả file lẻ vào ô chat mà không cần liên kết thư mục.'
+                    : 'Chat freely without a project folder. Drag and drop single files directly into chat anytime.'}
+                </p>
+              </div>
+            ) : fileTree.length === 0 ? (
               <div className="p-4 text-center text-xs text-gray-500 font-sans">
                 {tr.noFilesFound}
               </div>
@@ -401,6 +413,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
         {/* TAB 2: SHELL / TERMINAL */}
         {openTabs.includes('terminal') && activeTab === 'terminal' && (
           <div className="h-full flex flex-col justify-between space-y-2 animate-fade-in">
+            <div className="flex items-center justify-between text-[11px] text-gray-400 px-1">
+              <span className="font-mono text-gray-400 font-semibold">{selectedShell}</span>
+              {terminalLogs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setTerminalLogs([])}
+                  className="hover:text-white transition-colors text-[10px] text-gray-500"
+                >
+                  {currentLang === 'vi' ? 'Xóa màn hình' : 'Clear'}
+                </button>
+              )}
+            </div>
             {/* Terminal Logs Output */}
             <div className="flex-1 overflow-y-auto bg-black/60 border border-white/10 rounded-xl p-3 font-mono text-xs text-gray-300 space-y-1 select-text">
               {terminalLogs.length === 0 && (
@@ -690,8 +714,31 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
                   <span>{currentLang === 'vi' ? 'Đang đọc tệp tin...' : 'Reading file...'}</span>
                 </div>
               ) : viewingFile.error ? (
-                <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
-                  {viewingFile.error}
+                <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 space-y-2">
+                  <div className="font-semibold text-xs flex items-center space-x-1.5">
+                    <span>⚠️</span>
+                    <span>{currentLang === 'vi' ? 'Không tìm thấy tệp tin trên máy' : 'File not found on machine'}</span>
+                  </div>
+                  <p className="text-[11px] text-rose-200/80 font-mono">
+                    {viewingFile.path}
+                  </p>
+                  <p className="text-[11px] text-gray-400">
+                    {currentLang === 'vi'
+                      ? 'Tệp tin này có thể thuộc về thư mục làm việc khác hoặc đã bị đổi tên / xóa.'
+                      : 'This file may belong to another workspace or was moved/deleted.'}
+                  </p>
+                  {pinnedFiles.includes(viewingFile.path) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onTogglePinFile(viewingFile.path);
+                        setViewingFile(null);
+                      }}
+                      className="px-2.5 py-1 rounded-md bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/30 text-[11px] font-semibold transition-colors"
+                    >
+                      {currentLang === 'vi' ? 'Bỏ ghim khỏi Chat' : 'Unpin from Chat'}
+                    </button>
+                  )}
                 </div>
               ) : viewingFile.isImage && viewingFile.dataUrl ? (
                 <div className="flex flex-col items-center justify-center p-6 space-y-3">
@@ -769,7 +816,7 @@ const FileTreeNode: React.FC<{
         e.dataTransfer.effectAllowed = 'copy';
       }}
       onClick={() => onOpenFile(node)}
-      className="group flex items-center justify-between py-1 px-2 rounded-lg hover:bg-white/[0.08] cursor-pointer text-xs text-gray-300 transition-colors select-none"
+      className="group flex items-center justify-between py-1 px-2 rounded-lg hover:bg-white/[0.08] cursor-grab active:cursor-grabbing text-xs text-gray-300 transition-colors select-none"
       title="Bấm để xem tệp • Kéo vào ô chat để đính kèm"
     >
       <div className="flex items-center space-x-1.5 truncate">

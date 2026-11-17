@@ -68,7 +68,8 @@ export class WorkspaceFS {
   public static getFileTree(
     rootPath: string,
     maxDepth = 6,
-    currentDepth = 0
+    currentDepth = 0,
+    baseRoot = rootPath
   ): FileNode[] {
     if (!fs.existsSync(rootPath) || currentDepth >= maxDepth) {
       return [];
@@ -84,10 +85,10 @@ export class WorkspaceFS {
         }
 
         const fullPath = path.join(rootPath, entry.name);
-        const relativePath = path.relative(rootPath, fullPath).replace(/\\/g, '/');
+        const relativePath = path.relative(baseRoot, fullPath).replace(/\\/g, '/');
 
         if (entry.isDirectory()) {
-          const children = this.getFileTree(fullPath, maxDepth, currentDepth + 1);
+          const children = this.getFileTree(fullPath, maxDepth, currentDepth + 1, baseRoot);
           items.push({
             name: entry.name,
             path: fullPath,

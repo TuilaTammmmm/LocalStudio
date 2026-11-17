@@ -79,11 +79,12 @@ export class ModelDownloaderService {
   public static async startDownload(
     modelId: string,
     modelName: string,
-    fileSizeBytes: number
+    fileSizeBytes: number,
+    targetFilename?: string
   ): Promise<DownloadTask> {
     const dir = this.getModelsDir();
-    const filename = `${modelId}.gguf`;
-    const destPath = path.join(dir, filename);
+    const actualFilename = targetFilename || `${modelId}.gguf`;
+    const destPath = path.join(dir, actualFilename);
 
     // Cancel existing interval if already running
     if (this.intervals.has(modelId)) {

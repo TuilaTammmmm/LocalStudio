@@ -40,7 +40,7 @@ if (args.length === 0 || args[0] === 'dev') {
   freePort(3001);
   cmd = 'concurrently "tsx watch src/index.ts" "tauri dev"';
 } else if (args[0] === 'build') {
-  cmd = 'tauri build --no-bundle';
+  cmd = 'tauri build';
 } else if (args[0] === 'start' || args[0] === 'app') {
   freePort(3001);
   cmd = 'src-tauri\\target\\release\\local-ai-studio.exe';

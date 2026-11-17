@@ -60,6 +60,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
+    if (!res.ok) throw new Error('Failed to update workspace');
     return res.json();
   },
 
@@ -69,13 +70,15 @@ export const api = {
   },
 
   // Sessions
-  async getSessions(workspaceId: string): Promise<ChatSession[]> {
-    const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/sessions`);
+  async getSessions(workspaceId?: string): Promise<ChatSession[]> {
+    const ws = workspaceId || 'no-project';
+    const res = await fetch(`${API_BASE}/workspaces/${encodeURIComponent(ws)}/sessions`);
     return res.json();
   },
 
-  async createSession(workspaceId: string, title: string): Promise<ChatSession> {
-    const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/sessions`, {
+  async createSession(workspaceId?: string, title = 'New Conversation'): Promise<ChatSession> {
+    const ws = workspaceId || 'no-project';
+    const res = await fetch(`${API_BASE}/workspaces/${encodeURIComponent(ws)}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
@@ -93,6 +96,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
+    if (!res.ok) throw new Error('Failed to update session');
     return res.json();
   },
 
@@ -133,6 +137,11 @@ export const api = {
 
   async deleteProvider(id: string): Promise<{ success: boolean }> {
     const res = await fetch(`${API_BASE}/providers/${id}`, { method: 'DELETE' });
+    return res.json();
+  },
+
+  async deleteLocalModel(filename: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/models/local/${encodeURIComponent(filename)}`, { method: 'DELETE' });
     return res.json();
   },
 

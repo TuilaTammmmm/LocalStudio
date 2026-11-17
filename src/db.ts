@@ -14,6 +14,7 @@ interface AppDatabase {
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
   activeProviderId: string | null;
+  deletedProviderIds?: string[];
 }
 
 const DEFAULT_PROVIDERS: ProviderConfig[] = [
@@ -22,8 +23,8 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     name: 'Local llama.cpp (CUDA + CPU)',
     type: 'llama-server',
     baseUrl: 'http://127.0.0.1:8080/v1',
-    models: ['DeepSeek-R1-Distill-Qwen-8B-Q4_K_M.gguf', 'Qwen2.5-3B-Instruct-Q4_K_M.gguf'],
-    selectedModel: 'DeepSeek-R1-Distill-Qwen-8B-Q4_K_M.gguf',
+    models: [],
+    selectedModel: '',
     isDefault: true,
     enabled: true,
   },
@@ -83,10 +84,28 @@ export class DatabaseService {
         if (!parsed.customHubModels) {
           parsed.customHubModels = {};
         }
+        if (!parsed.deletedProviderIds) {
+          parsed.deletedProviderIds = [];
+        }
         for (const dp of DEFAULT_PROVIDERS) {
-          if (!parsed.providers[dp.id]) {
+          if (!parsed.providers[dp.id] && !parsed.deletedProviderIds.includes(dp.id)) {
             parsed.providers[dp.id] = dp;
           }
+        }
+        if (parsed.providers && parsed.providers['local-llama']) {
+          const modelsDir = path.resolve(process.cwd(), 'models');
+          let files: string[] = [];
+          if (fs.existsSync(modelsDir)) {
+            try {
+              files = fs.readdirSync(modelsDir)
+                .filter((f) => f.toLowerCase().endsWith('.gguf'));
+            } catch {}
+          }
+          parsed.providers['local-llama'].models = files;
+          if (!files.includes(parsed.providers['local-llama'].selectedModel)) {
+            parsed.providers['local-llama'].selectedModel = files[0] || '';
+          }
+          this.persist(parsed);
         }
         return parsed;
       } catch (err) {
@@ -154,6 +173,11 @@ export class DatabaseService {
   public listSessions(workspaceId?: string): ChatSession[] {
     const sessions = Object.values(this.db.sessions);
     if (!workspaceId) return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    if (workspaceId === 'no-project') {
+      return sessions
+        .filter((s) => !s.workspaceId || s.workspaceId === 'no-project')
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+    }
     return sessions
       .filter((s) => s.workspaceId === workspaceId)
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -197,12 +221,42 @@ export class DatabaseService {
   }
 
   // Providers
+  public syncLocalModels(provider: ProviderConfig): void {
+    if (provider.id === 'local-llama' || provider.type === 'llama-server') {
+      const modelsDir = path.resolve(process.cwd(), 'models');
+      let files: string[] = [];
+      if (fs.existsSync(modelsDir)) {
+        try {
+          files = fs.readdirSync(modelsDir)
+            .filter((f) => f.toLowerCase().endsWith('.gguf'));
+        } catch {}
+      }
+      provider.models = files;
+      if (!files.includes(provider.selectedModel)) {
+        provider.selectedModel = files[0] || '';
+      }
+      if (this.db) {
+        this.persist();
+      }
+    }
+  }
+
   public listProviders(): ProviderConfig[] {
-    return Object.values(this.db.providers);
+    const list = Object.values(this.db.providers);
+    for (const p of list) {
+      if (p.id === 'local-llama') {
+        this.syncLocalModels(p);
+      }
+    }
+    return list;
   }
 
   public getProvider(id: string): ProviderConfig | undefined {
-    return this.db.providers[id];
+    const provider = this.db.providers[id];
+    if (provider && provider.id === 'local-llama') {
+      this.syncLocalModels(provider);
+    }
+    return provider;
   }
 
   public saveProvider(provider: ProviderConfig): ProviderConfig {
@@ -222,6 +276,12 @@ export class DatabaseService {
   public deleteProvider(id: string): boolean {
     if (id === 'local-llama') {
       return false; // Embedded local llama cannot be deleted
+    }
+    if (!this.db.deletedProviderIds) {
+      this.db.deletedProviderIds = [];
+    }
+    if (!this.db.deletedProviderIds.includes(id)) {
+      this.db.deletedProviderIds.push(id);
     }
     if (this.db.providers[id]) {
       delete this.db.providers[id];

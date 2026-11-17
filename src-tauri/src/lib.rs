@@ -41,23 +41,55 @@ fn ensure_backend_running() {
     }
 
     let root_opt = find_project_root();
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+    // 1. Check if bundled node.exe and server.cjs exist in resources/ (All-in-One Mode)
+    let bundled_backend = exe_dir.as_ref().and_then(|dir| {
+        let node_path = dir.join("resources").join("node.exe");
+        let server_path = dir.join("resources").join("server.cjs");
+        if node_path.exists() && server_path.exists() {
+            Some((node_path, server_path))
+        } else {
+            let node_path2 = dir.join("node.exe");
+            let server_path2 = dir.join("server.cjs");
+            if node_path2.exists() && server_path2.exists() {
+                Some((node_path2, server_path2))
+            } else {
+                None
+            }
+        }
+    });
 
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        
-        let mut cmd = Command::new("cmd");
-        cmd.args(&["/C", "node dist/index.js > .data/backend.log 2>&1"])
-           .creation_flags(CREATE_NO_WINDOW);
-        
-        if let Some(ref root) = root_opt {
-            cmd.current_dir(root);
-        }
 
-        if let Ok(child) = cmd.spawn() {
-            if let Ok(mut lock) = BACKEND_CHILD.lock() {
-                *lock = Some(child);
+        if let Some((node_bin, server_script)) = bundled_backend {
+            let mut cmd = Command::new(&node_bin);
+            cmd.arg(&server_script)
+               .creation_flags(CREATE_NO_WINDOW);
+            if let Some(ref dir) = exe_dir {
+                cmd.current_dir(dir);
+            }
+            if let Ok(child) = cmd.spawn() {
+                if let Ok(mut lock) = BACKEND_CHILD.lock() {
+                    *lock = Some(child);
+                }
+            }
+        } else {
+            let mut cmd = Command::new("cmd");
+            cmd.args(&["/C", "node dist/index.js > .data/backend.log 2>&1"])
+               .creation_flags(CREATE_NO_WINDOW);
+            
+            if let Some(ref root) = root_opt {
+                cmd.current_dir(root);
+            }
+
+            if let Ok(child) = cmd.spawn() {
+                if let Ok(mut lock) = BACKEND_CHILD.lock() {
+                    *lock = Some(child);
+                }
             }
         }
     }
@@ -76,8 +108,8 @@ fn ensure_backend_running() {
         }
     }
 
-    // Wait up to 3 seconds for port 3001 to become ready
-    for _ in 0..30 {
+    // Wait up to 5 seconds for port 3001 to become ready
+    for _ in 0..50 {
         if TcpStream::connect_timeout(
             &"127.0.0.1:3001".parse().unwrap(),
             Duration::from_millis(100),

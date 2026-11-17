@@ -96,11 +96,15 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         {/* Compact Workspace Indicator */}
         <div
           className="flex items-center space-x-1.5 text-gray-300 hover:text-white transition-colors text-xs max-w-[180px] truncate"
-          title={activeWorkspace?.folderPath || 'Workspace'}
+          title={activeWorkspace?.folderPath || (currentLang === 'vi' ? 'Trò chuyện tự do (Không dùng dự án)' : 'General Chat (No Project)')}
         >
-          <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          {activeWorkspace ? (
+            <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          ) : (
+            <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+          )}
           <span className="truncate text-[11px] font-medium">
-            {activeWorkspace?.name || (currentLang === 'vi' ? 'Thư mục làm việc' : 'Workspace')}
+            {activeWorkspace?.name || (currentLang === 'vi' ? 'Trò chuyện tự do' : 'General Chat')}
           </span>
         </div>
 
