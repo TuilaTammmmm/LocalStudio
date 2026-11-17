@@ -22,3 +22,4 @@
 - Model Storage: Unified models directory (`%USERPROFILE%\LocalAI\models`), multi-directory discovery, and safe deletion fallback.
 - ChatInput UI: Responsive non-wrapping buttons (`whitespace-nowrap shrink-0`) preventing layout overlapping.
 - Global Hardware Config: Removed fragile per-model sliders from Model Hub; centralized permanently saved GPU/CPU flags (`-ngl`, `-c`, `-t`, `-fa`) in dedicated "Cấu hình GPU & Phần cứng" tab.
+- v1.0.1 Upgrade: Upgraded engine to dynamic hardware auto-scaling (4GB up to 24GB+ VRAM), physical CPU core threading (-t), llama.cpp --context-shift, -fa on, stream <think> parser for DeepSeek-R1, and safe dry_penalty_last_n = 0.

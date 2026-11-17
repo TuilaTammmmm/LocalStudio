@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { LocalSkill, ProviderConfig, ProviderType, HardwareStats } from '../../types.js';
 import type { AutoRouteConfig } from '../../auto-router.js';
-import { type ModelHubItem, type ModelCompatibility, ModelHubService } from '../../model-hub.js';
+import { type ModelHubItem, type ModelCompatibility, ModelHubService, parseModelMetadata } from '../../model-hub.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import { getApiUrl } from '../api.js';
 import {
@@ -104,7 +104,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Sampling & Generation Parameters (LM Studio style)
   const [temperature, setTemperature] = useState(() => {
-    return Number(localStorage.getItem('localai_temperature') || '0.7');
+    return Number(localStorage.getItem('localai_temperature') || '0.6');
   });
   const [topP, setTopP] = useState(() => {
     return Number(localStorage.getItem('localai_topP') || '0.9');
@@ -116,7 +116,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return Number(localStorage.getItem('localai_repeatPenalty') || '1.1');
   });
   const [defaultSystemPrompt, setDefaultSystemPrompt] = useState(() => {
-    return localStorage.getItem('localai_defaultSystemPrompt') || 'You are LocalAI, an expert software developer and local intelligence agent.';
+    return (
+      localStorage.getItem('localai_defaultSystemPrompt') ||
+      'Bạn là LocalAI, chuyên gia phát triển phần mềm và trợ lý AI cục bộ thông minh.\n' +
+      'Quy tắc phản hồi:\n' +
+      '1. Luôn sử dụng tiếng Việt tự nhiên, rõ ràng, gãy gọn.\n' +
+      '2. Giữ nguyên thuật ngữ kỹ thuật, code, tên thư viện và cú pháp bằng tiếng Anh.\n' +
+      '3. Trả lời trực tiếp vào trọng tâm, không chào hỏi rườm rà hay mở bài/kết bài thừa thãi.'
+    );
   });
   const [paramSaved, setParamSaved] = useState(false);
 
@@ -163,11 +170,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isAddingCustomModel, setIsAddingCustomModel] = useState(false);
   const [customModelName, setCustomModelName] = useState('');
   const [customModelUrl, setCustomModelUrl] = useState('');
-  const [customModelAuthor, setCustomModelAuthor] = useState('HuggingFace');
-  const [customModelParam, setCustomModelParam] = useState('7B');
-  const [customModelQuant, setCustomModelQuant] = useState('Q4_K_M');
-  const [customModelSizeGb, setCustomModelSizeGb] = useState('4.5');
-  const [customModelCategory, setCustomModelCategory] = useState<'coding' | 'reasoning' | 'vision' | 'general'>('coding');
+  const [lastAutoName, setLastAutoName] = useState('');
+
+  const handleCustomUrlChange = (url: string) => {
+    setCustomModelUrl(url);
+    if (url.trim()) {
+      const parsed = parseModelMetadata(url);
+      if (!customModelName || customModelName === lastAutoName) {
+        setCustomModelName(parsed.name);
+        setLastAutoName(parsed.name);
+      }
+    }
+  };
 
   // Model Hub & Downloader state inside Settings
   const [hubModels, setHubModels] = useState<EnrichedModelItem[]>([]);
@@ -447,26 +461,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleAddCustomModel = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customModelName || !customModelUrl) return;
+    if (!customModelUrl.trim()) return;
     try {
-      const sizeBytes = Math.round(parseFloat(customModelSizeGb || '4') * 1024 * 1024 * 1024);
+      const meta = parseModelMetadata(customModelUrl, customModelName);
+      const finalName = customModelName.trim() || meta.name;
       const res = await fetch(getApiUrl('/api/models/hub/custom'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: customModelName,
-          downloadUrl: customModelUrl,
-          author: customModelAuthor || 'HuggingFace',
-          parameterSize: customModelParam || '7B',
-          quantization: customModelQuant || 'Q4_K_M',
-          fileSizeBytes: sizeBytes,
-          category: customModelCategory,
+          name: finalName,
+          downloadUrl: meta.normalizedUrl,
+          author: meta.author,
+          parameterSize: meta.parameterSize,
+          quantization: meta.quantization,
+          fileSizeBytes: meta.fileSizeBytes,
+          category: meta.category,
+          totalLayers: meta.totalLayers,
         }),
       });
       if (res.ok) {
         setIsAddingCustomModel(false);
         setCustomModelName('');
         setCustomModelUrl('');
+        setLastAutoName('');
         const hubRes = await fetch(getApiUrl('/api/models/hub'));
         const data = await hubRes.json();
         setHubModels(data.models || []);
@@ -651,102 +668,82 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 {/* Inline Add Custom Model Form */}
                 {isAddingCustomModel && (
-                  <form onSubmit={handleAddCustomModel} className="p-3 rounded-xl bg-[#0d1117] border border-sky-500/40 space-y-2 text-xs animate-fade-in shadow-lg">
-                    <div className="font-bold text-sky-400 text-xs flex items-center space-x-1">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>{currentLang === 'vi' ? 'Thêm mô hình từ Hugging Face hoặc URL' : 'Add Model from Hugging Face / URL'}</span>
+                  <form onSubmit={handleAddCustomModel} className="p-3.5 rounded-xl bg-[#0d1117] border border-sky-500/40 space-y-2.5 text-xs animate-fade-in shadow-lg">
+                    <div className="font-bold text-sky-400 text-xs flex items-center justify-between">
+                      <div className="flex items-center space-x-1.5">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>{currentLang === 'vi' ? 'Thêm mô hình từ Hugging Face hoặc URL' : 'Add Model from Hugging Face / URL'}</span>
+                      </div>
+                      <span className="text-[10px] text-gray-400 font-normal">
+                        {currentLang === 'vi' ? 'Tự động nhận diện thông số' : 'Auto-extracts parameters'}
+                      </span>
                     </div>
+
                     <div>
-                      <label className="text-[10px] text-gray-400 block font-medium">
-                        {currentLang === 'vi' ? 'Tên mô hình:' : 'Model Name:'}
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ví dụ: DeepSeek-R1-Distill-Qwen-7B"
-                        value={customModelName}
-                        onChange={(e) => setCustomModelName(e.target.value)}
-                        required
-                        className="w-full px-2.5 py-1 rounded-lg bg-[#161b22] border border-[#30363d] text-white text-xs focus:outline-none focus:border-sky-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-gray-400 block font-medium">
+                      <label className="text-[10px] text-gray-400 block font-medium mb-1">
                         {currentLang === 'vi' ? 'Đường dẫn Hugging Face / URL (.gguf):' : 'Hugging Face URL / GGUF Link:'}
                       </label>
                       <input
                         type="url"
                         placeholder="https://huggingface.co/.../*.gguf"
                         value={customModelUrl}
-                        onChange={(e) => setCustomModelUrl(e.target.value)}
+                        onChange={(e) => handleCustomUrlChange(e.target.value)}
                         required
-                        className="w-full px-2.5 py-1 rounded-lg bg-[#161b22] border border-[#30363d] text-white font-mono text-[11px] focus:outline-none focus:border-sky-500"
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] text-white font-mono text-[11px] focus:outline-none focus:border-sky-500"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] text-gray-400 block font-medium">
-                          {currentLang === 'vi' ? 'Định dạng lượng tử:' : 'Quantization:'}
-                        </label>
-                        <select
-                          value={customModelQuant}
-                          onChange={(e) => setCustomModelQuant(e.target.value)}
-                          className="w-full px-2 py-1 rounded-lg bg-[#161b22] border border-[#30363d] text-white text-xs focus:outline-none focus:border-sky-500"
-                        >
-                          <option value="Q4_K_M">Q4_K_M (Khuyên dùng)</option>
-                          <option value="Q5_K_M">Q5_K_M</option>
-                          <option value="Q8_0">Q8_0</option>
-                          <option value="Q3_K_M">Q3_K_M</option>
-                          <option value="IQ4_XS">IQ4_XS</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-gray-400 block font-medium">
-                          {currentLang === 'vi' ? 'Dung lượng ước tính (GB):' : 'Size (GB):'}
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="4.5"
-                          value={customModelSizeGb}
-                          onChange={(e) => setCustomModelSizeGb(e.target.value)}
-                          className="w-full px-2 py-1 rounded-lg bg-[#161b22] border border-[#30363d] text-white text-xs focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
+
+                    <div>
+                      <label className="text-[10px] text-gray-400 block font-medium mb-1">
+                        {currentLang === 'vi' ? 'Tên mô hình:' : 'Model Name:'}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={currentLang === 'vi' ? 'Tự động lấy theo link hoặc chỉnh sửa tùy ý...' : 'Auto-derived from link or custom name...'}
+                        value={customModelName}
+                        onChange={(e) => setCustomModelName(e.target.value)}
+                        required
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] text-white text-xs focus:outline-none focus:border-sky-500"
+                      />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] text-gray-400 block font-medium">
-                          {currentLang === 'vi' ? 'Số lượng tham số:' : 'Parameters:'}
-                        </label>
-                        <select
-                          value={customModelParam}
-                          onChange={(e) => setCustomModelParam(e.target.value)}
-                          className="w-full px-2 py-1 rounded-lg bg-[#161b22] border border-[#30363d] text-white text-xs focus:outline-none focus:border-sky-500"
-                        >
-                          <option value="1.5B">1.5B</option>
-                          <option value="3B">3B</option>
-                          <option value="7B">7B</option>
-                          <option value="8B">8B</option>
-                          <option value="14B">14B</option>
-                          <option value="32B">32B</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-gray-400 block font-medium">
-                          {currentLang === 'vi' ? 'Mục đích sử dụng:' : 'Category:'}
-                        </label>
-                        <select
-                          value={customModelCategory}
-                          onChange={(e) => setCustomModelCategory(e.target.value as any)}
-                          className="w-full px-2 py-1 rounded-lg bg-[#161b22] border border-[#30363d] text-white text-xs focus:outline-none focus:border-sky-500"
-                        >
-                          <option value="coding">💻 {currentLang === 'vi' ? 'Lập trình' : 'Coding'}</option>
-                          <option value="reasoning">🧠 {currentLang === 'vi' ? 'Suy luận' : 'Reasoning'}</option>
-                          <option value="general">⚡ {currentLang === 'vi' ? 'Đa nhiệm' : 'General'}</option>
-                          <option value="vision">👁️ {currentLang === 'vi' ? 'Thị giác' : 'Vision'}</option>
-                        </select>
-                      </div>
-                    </div>
+
+                    {/* Auto-detected parameters card */}
+                    {customModelUrl.trim() && (() => {
+                      const detected = parseModelMetadata(customModelUrl, customModelName);
+                      const catLabels: Record<string, { vi: string; en: string }> = {
+                        coding: { vi: '💻 Lập trình', en: '💻 Coding' },
+                        reasoning: { vi: '🧠 Suy luận', en: '🧠 Reasoning' },
+                        vision: { vi: '👁️ Thị giác', en: '👁️ Vision' },
+                        general: { vi: '⚡ Đa nhiệm', en: '⚡ General' },
+                      };
+                      const catText = catLabels[detected.category]?.[currentLang === 'vi' ? 'vi' : 'en'] || detected.category;
+                      return (
+                        <div className="p-2.5 rounded-lg bg-sky-500/10 border border-sky-500/20 space-y-1.5 animate-fade-in">
+                          <div className="text-[10px] text-sky-400 font-semibold flex items-center space-x-1">
+                            <Sparkles className="w-3 h-3 text-sky-400" />
+                            <span>{currentLang === 'vi' ? 'Thông số tự động nhận diện:' : 'Auto-detected parameters:'}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
+                            <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-semibold">
+                              {detected.parameterSize}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                              {detected.quantization}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                              ~{detected.estimatedGb} GB
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              {catText}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-[#21262d] text-gray-300 border border-[#30363d]">
+                              {detected.author}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <button
                       type="submit"
                       className="w-full py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs transition-all flex items-center justify-center space-x-1"
@@ -1192,6 +1189,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={autoRouteConfig.generalModel}
                     category="general"
                     dropdownPosition="down"
+                    installedModels={providers.find((p) => p.id === 'local-llama')?.models || []}
                     onChange={(val) => onUpdateAutoRouteConfig({ ...autoRouteConfig, generalModel: val })}
                   />
 
@@ -1202,6 +1200,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={autoRouteConfig.coderModel}
                     category="coding"
                     dropdownPosition="down"
+                    installedModels={providers.find((p) => p.id === 'local-llama')?.models || []}
                     onChange={(val) => onUpdateAutoRouteConfig({ ...autoRouteConfig, coderModel: val })}
                   />
 
@@ -1212,6 +1211,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={autoRouteConfig.reasonerModel}
                     category="reasoning"
                     dropdownPosition="up"
+                    installedModels={providers.find((p) => p.id === 'local-llama')?.models || []}
                     onChange={(val) => onUpdateAutoRouteConfig({ ...autoRouteConfig, reasonerModel: val })}
                   />
 
@@ -1222,6 +1222,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={autoRouteConfig.visionModel}
                     category="vision"
                     dropdownPosition="up"
+                    installedModels={providers.find((p) => p.id === 'local-llama')?.models || []}
                     onChange={(val) => onUpdateAutoRouteConfig({ ...autoRouteConfig, visionModel: val })}
                   />
                 </div>
@@ -1968,12 +1969,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="space-y-1.5 pt-2">
                     <div className="flex justify-between items-center">
                       <span className="font-semibold text-xs text-gray-200">Default Global System Prompt:</span>
+                      <span className="text-[10px] text-gray-500 font-mono">Kéo góc dưới phải để mở rộng</span>
                     </div>
                     <textarea
-                      rows={3}
+                      rows={6}
                       value={defaultSystemPrompt}
                       onChange={(e) => setDefaultSystemPrompt(e.target.value)}
-                      className="w-full p-2.5 rounded-xl bg-[#0d1117] border border-[#30363d] text-gray-200 text-xs focus:outline-none focus:border-emerald-500 font-sans"
+                      placeholder="Nhập chỉ dẫn hệ thống mặc định..."
+                      className="w-full min-h-[140px] max-h-[420px] p-3 rounded-xl bg-[#0d1117] border border-[#30363d] text-gray-200 text-xs focus:outline-none focus:border-emerald-500 font-sans leading-relaxed resize-y"
                     />
                   </div>
 
@@ -2444,11 +2447,12 @@ const SearchableModelPicker: React.FC<{
   value: string;
   category: 'general' | 'coding' | 'reasoning' | 'vision';
   dropdownPosition?: 'up' | 'down';
+  installedModels?: string[];
   onChange: (val: string) => void;
-}> = ({ label, desc, value, category, dropdownPosition = 'down', onChange }) => {
+}> = ({ label, desc, value, category, dropdownPosition = 'down', installedModels = [], onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  const categoryModels: Record<'general' | 'coding' | 'reasoning' | 'vision', Array<{ name: string; tag: string; icon: string }>> = {
+  const categoryPresets: Record<'general' | 'coding' | 'reasoning' | 'vision', Array<{ name: string; tag: string; icon: string }>> = {
     general: [
       { name: 'Qwen2.5-3B-Instruct-Q4_K_M.gguf', tag: 'Nhanh (3B)', icon: '⚡' },
       { name: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf', tag: 'Đa nhiệm (3B)', icon: '⚡' },
@@ -2471,7 +2475,44 @@ const SearchableModelPicker: React.FC<{
     ],
   };
 
-  const options = categoryModels[category] || categoryModels.general;
+  // 1. Filter local files physically present on disk for this role
+  const categoryKeywords: Record<string, string[]> = {
+    general: ['3b', 'chat', 'general', 'instruct', 'mistral', 'llama'],
+    coding: ['coder', 'code', 'starcoder', 'dev'],
+    reasoning: ['r1', 'reason', 'math', 'phi', 'deepseek'],
+    vision: ['vl', 'vision', 'llava', 'cpm'],
+  };
+
+  const keywords = categoryKeywords[category] || [];
+  const localRoleModels = installedModels.filter((m) => {
+    const ml = m.toLowerCase();
+    return keywords.some((kw) => ml.includes(kw));
+  });
+
+  const otherLocalModels = installedModels.filter((m) => !localRoleModels.includes(m));
+
+  // Build options: Prioritize installed models on disk
+  const options: Array<{ name: string; tag: string; icon: string; isDownloaded: boolean }> = [];
+
+  // Add physically installed models matching category first
+  for (const m of localRoleModels) {
+    options.push({ name: m, tag: 'Đã tải trên máy', icon: category === 'coding' ? '💻' : category === 'reasoning' ? '🧠' : category === 'vision' ? '👁️' : '⚡', isDownloaded: true });
+  }
+
+  // Add other physically installed models on disk
+  for (const m of otherLocalModels) {
+    options.push({ name: m, tag: 'Có sẵn trên máy', icon: '📁', isDownloaded: true });
+  }
+
+  // If no matching model on disk, show recommended catalog models with status
+  const presets = categoryPresets[category] || categoryPresets.general;
+  for (const p of presets) {
+    const alreadyAdded = options.some((o) => o.name.toLowerCase() === p.name.toLowerCase());
+    if (!alreadyAdded) {
+      options.push({ ...p, tag: `${p.tag} (Chưa tải)`, isDownloaded: false });
+    }
+  }
+
   const positionClass = dropdownPosition === 'up'
     ? 'bottom-full mb-1.5 right-0'
     : 'top-full mt-1.5 right-0';
@@ -2511,7 +2552,7 @@ const SearchableModelPicker: React.FC<{
             />
             <div className={`absolute ${positionClass} w-full sm:w-96 max-h-60 overflow-y-auto bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-1.5 space-y-1 animate-slide-up backdrop-blur-xl`}>
               <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-[#30363d] pb-1 flex items-center justify-between">
-                <span>Mô hình tương thích ({options.length})</span>
+                <span>Mô hình đề xuất ({options.length})</span>
                 <span className="text-[9px] text-gray-500 font-mono">Bấm để gán</span>
               </div>
               {options.map((opt) => {
@@ -2535,7 +2576,11 @@ const SearchableModelPicker: React.FC<{
                       <span className="font-mono text-[11px] truncate">{opt.name}</span>
                     </div>
                     <div className="flex items-center space-x-1.5 shrink-0">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#0d1117] text-gray-400 border border-[#30363d] font-mono">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+                        opt.isDownloaded
+                          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                          : 'bg-[#0d1117] text-gray-400 border-[#30363d]'
+                      }`}>
                         {opt.tag}
                       </span>
                       {isSelected && <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />}

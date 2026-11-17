@@ -335,3 +335,118 @@ export class ModelHubService {
     };
   }
 }
+
+export interface ParsedModelInfo {
+  name: string;
+  author: string;
+  parameterSize: string;
+  quantization: string;
+  category: 'coding' | 'reasoning' | 'vision' | 'general';
+  totalLayers: number;
+  estimatedGb: number;
+  fileSizeBytes: number;
+  normalizedUrl: string;
+}
+
+/**
+ * Automatically parse model metadata (parameter size, quantization, author, category, layers, size)
+ * directly from a Hugging Face / GGUF download URL or model name.
+ */
+export function parseModelMetadata(url: string, manualName?: string): ParsedModelInfo {
+  const cleanUrl = (url || '').trim();
+  let normalizedUrl = cleanUrl;
+  if (normalizedUrl.includes('huggingface.co/') && normalizedUrl.includes('/blob/')) {
+    normalizedUrl = normalizedUrl.replace('/blob/', '/resolve/');
+  }
+
+  // Extract filename or path segment
+  const urlPath = cleanUrl.split('?')[0].split('#')[0];
+  const segments = urlPath.split('/').filter(Boolean);
+  const rawFilename = segments[segments.length - 1] || '';
+  const isDirectGguf = rawFilename.toLowerCase().endsWith('.gguf');
+  const baseNameFromUrl = isDirectGguf ? rawFilename.slice(0, -5) : rawFilename;
+
+  // Extract author from Hugging Face URL
+  let author = 'HuggingFace';
+  const hfParts = cleanUrl.replace(/^https?:\/\/(?:www\.)?huggingface\.co\//i, '').split('/');
+  if (hfParts.length >= 1 && hfParts[0] && !['models', 'datasets', 'spaces'].includes(hfParts[0].toLowerCase())) {
+    author = hfParts[0];
+  }
+
+  // Combined string for heuristic regex matching
+  const searchStr = `${cleanUrl} ${manualName || ''}`.replace(/[\/\\_\-\.]/g, ' ');
+
+  // 1. Parameter size (e.g. 0.5B, 1.5B, 3B, 7B, 8B, 9B, 14B, 32B, 70B)
+  let parameterSize = '7B';
+  const paramMatch = searchStr.match(/\b(\d+(?:\.\d+)?)\s*[bB]\b/);
+  if (paramMatch) {
+    parameterSize = `${paramMatch[1].toUpperCase()}B`;
+  }
+
+  // 2. Quantization (e.g. Q4_K_M, Q8_0, Q4_0, Q6_K, IQ4_XS, BF16, FP16)
+  let quantization = 'Q4_K_M';
+  const quantMatch = cleanUrl.match(/(?:^|[\/\-_.\s])((?:I?Q[0-9]_[A-Z0-9_]+)|(?:Q[0-9]_[0-9])|(?:BF16)|(?:FP16)|(?:F16)|(?:F32))(?:[\/\-_.\s]|$|\.gguf)/i)
+    || searchStr.match(/\b((?:I?Q[0-9]_[A-Z0-9_]+)|(?:Q[0-9]_[0-9])|(?:BF16)|(?:FP16)|(?:F16)|(?:F32))\b/i);
+  if (quantMatch) {
+    quantization = quantMatch[1].toUpperCase();
+  }
+
+  // 3. Category
+  let category: 'coding' | 'reasoning' | 'vision' | 'general' = 'general';
+  const lowerSearch = searchStr.toLowerCase();
+  if (/coder|coding|code|starcoder|dev\b/.test(lowerSearch)) {
+    category = 'coding';
+  } else if (/r1|reason|math|logic|think/.test(lowerSearch)) {
+    category = 'reasoning';
+  } else if (/vl|vision|ocr|cpm|multimodal|llava/.test(lowerSearch)) {
+    category = 'vision';
+  }
+
+  // 4. Layers
+  const numB = parseFloat(parameterSize) || 7;
+  let totalLayers = 32;
+  if (numB <= 2) totalLayers = 24;
+  else if (numB <= 4) totalLayers = 28;
+  else if (numB <= 9) totalLayers = 32;
+  else if (numB <= 16) totalLayers = 48;
+  else if (numB <= 36) totalLayers = 64;
+  else totalLayers = 80;
+
+  // 5. Estimated File Size
+  let bytesPerParam = 0.65; // Baseline for Q4 in GB per billion params
+  const qUpper = quantization.toUpperCase();
+  if (qUpper.includes('Q8') || qUpper.includes('F8')) bytesPerParam = 1.1;
+  else if (qUpper.includes('Q6')) bytesPerParam = 0.85;
+  else if (qUpper.includes('Q5')) bytesPerParam = 0.75;
+  else if (qUpper.includes('Q3')) bytesPerParam = 0.52;
+  else if (qUpper.includes('Q2') || qUpper.includes('IQ2')) bytesPerParam = 0.4;
+  else if (qUpper.includes('16')) bytesPerParam = 2.1;
+
+  const estimatedGb = Math.max(0.5, Math.round(numB * bytesPerParam * 10) / 10);
+  const fileSizeBytes = Math.round(estimatedGb * 1024 * 1024 * 1024);
+
+  // 6. Name
+  let name = (manualName || '').trim();
+  if (!name) {
+    if (baseNameFromUrl) {
+      name = baseNameFromUrl
+        .replace(new RegExp(`[_-]?${quantization}`, 'i'), '')
+        .replace(/[_-]/g, ' ')
+        .trim();
+    } else {
+      name = `Custom ${parameterSize} ${quantization}`;
+    }
+  }
+
+  return {
+    name,
+    author,
+    parameterSize,
+    quantization,
+    category,
+    totalLayers,
+    estimatedGb,
+    fileSizeBytes,
+    normalizedUrl,
+  };
+}

@@ -10,7 +10,7 @@ import { ContextBuilder } from './context-builder.js';
 import { SkillsScanner } from './skills-scanner.js';
 import { SkillsRunner } from './skills-runner.js';
 import { AutoModelRouter, DEFAULT_AUTO_ROUTE_CONFIG } from './auto-router.js';
-import { ModelHubService, CURATED_MODELS, type ModelHubItem } from './model-hub.js';
+import { ModelHubService, CURATED_MODELS, type ModelHubItem, parseModelMetadata } from './model-hub.js';
 import { ModelDownloaderService } from './model-downloader.js';
 import { AppUpdater } from './updater.js';
 import { exec, spawn, execFile } from 'node:child_process';
@@ -108,24 +108,28 @@ export function createServer(
   // 1.1.1 Add Custom Model to Hub (Hugging Face / Direct URL)
   app.post('/api/models/hub/custom', async (c) => {
     const body = await c.req.json();
-    if (!body.name || !body.downloadUrl) {
-      return c.json({ error: 'Name and downloadUrl are required' }, 400);
+    const downloadUrl = (body.downloadUrl || '').trim();
+    if (!downloadUrl) {
+      return c.json({ error: 'downloadUrl is required' }, 400);
     }
+    const parsed = parseModelMetadata(downloadUrl, body.name);
+    const finalName = (body.name || '').trim() || parsed.name;
+    const finalUrl = parsed.normalizedUrl;
     const id = body.id || `custom-${Date.now()}`;
-    const filename = body.filename || `${body.name.replace(/\s+/g, '-').toLowerCase()}.gguf`;
+    const filename = body.filename || `${finalName.replace(/\s+/g, '-').toLowerCase()}.gguf`;
     const customModel: ModelHubItem = {
       id,
-      name: body.name,
+      name: finalName,
       filename,
-      author: body.author || 'Community',
-      description: body.description || `Custom model added from Hugging Face / URL`,
-      parameterSize: body.parameterSize || '7B',
-      quantization: body.quantization || 'Q4_K_M',
-      fileSizeBytes: Number(body.fileSizeBytes) || 4_000_000_000,
-      totalLayers: Number(body.totalLayers) || 32,
-      downloadUrl: body.downloadUrl,
-      tags: Array.isArray(body.tags) ? body.tags : ['HuggingFace', 'Custom'],
-      category: body.category || 'general',
+      author: body.author || parsed.author,
+      description: body.description || `Mô hình tùy chỉnh từ Hugging Face / URL (${parsed.parameterSize}, ${parsed.quantization})`,
+      parameterSize: body.parameterSize || parsed.parameterSize,
+      quantization: body.quantization || parsed.quantization,
+      fileSizeBytes: Number(body.fileSizeBytes) || parsed.fileSizeBytes,
+      totalLayers: Number(body.totalLayers) || parsed.totalLayers,
+      downloadUrl: finalUrl,
+      tags: Array.isArray(body.tags) ? body.tags : ['HuggingFace', 'Custom', parsed.parameterSize, parsed.quantization],
+      category: body.category || parsed.category,
     };
     db.saveCustomHubModel(customModel);
     return c.json(customModel);
@@ -486,13 +490,19 @@ export function createServer(
 
   // 6. SSE Streaming Chat Endpoint
   app.post('/api/chat/stream', async (c) => {
-    const { sessionId, prompt, contextFiles, workspaceId } = await c.req.json();
+    const { sessionId, prompt, contextFiles, workspaceId, sampling, defaultSystemPrompt } = await c.req.json();
     if (!sessionId || !prompt) {
       return c.json({ error: 'sessionId and prompt are required' }, 400);
     }
 
     const ws = workspaceId ? db.getWorkspace(workspaceId) : undefined;
-    const baseSystemPrompt = ws?.systemPrompt || '';
+    const activeProvider = router.getActiveProvider();
+    const currentModelName = activeProvider?.selectedModel || '';
+
+    let baseSystemPrompt = (ws?.systemPrompt || '').trim() || (defaultSystemPrompt || '').trim();
+    if (currentModelName) {
+      baseSystemPrompt = `${baseSystemPrompt}\n\n[Môi trường]: Mô hình AI đang chạy hiện tại là: ${currentModelName}`.trim();
+    }
 
     // Check Skills
     const skillFolders = db.listSkillFolders();
@@ -531,6 +541,10 @@ export function createServer(
         for await (const chunk of router.executeChatStream(sessionId, effectivePrompt, {
           systemPrompt: effectiveSystemPrompt,
           contextFiles: loadedContextFiles,
+          temperature: sampling?.temperature,
+          topP: sampling?.topP,
+          maxTokens: sampling?.maxTokens,
+          repeatPenalty: sampling?.repeatPenalty,
         })) {
           await stream.writeSSE({
             event: chunk.done ? 'done' : 'message',

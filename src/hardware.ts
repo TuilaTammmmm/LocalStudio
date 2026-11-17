@@ -66,63 +66,88 @@ export class HardwareMonitor {
   }
 
   /**
-   * Calculate smart -ngl (GPU offloaded layers) and CPU threads for GTX 1650 (4GB)
-   * Prevents CUDA Out Of Memory (OOM) by reserving an OS Display Safety Buffer.
+   * Calculate smart -ngl (GPU offloaded layers) and CPU threads for ANY hardware.
+   * Dynamically auto-scales from low-end GPUs (GTX 1650 4GB) to high-end cards (RTX 3060/4070/4090 12-24GB)
+   * and aligns CPU thread count with physical cores per llama.cpp official recommendations.
    */
   public calculateSmartOffload(
     stats: HardwareStats,
-    modelType: '1.5B' | '3B' | '7B' | '8B' | '14B' | 'unknown' = '8B'
+    modelType: '1.5B' | '3B' | '7B' | '8B' | '14B' | '32B' | 'unknown' = '8B'
   ): {
     ngl: number;
     threads: number;
     recommendedContext: number;
     strategy: string;
   } {
-    const cpuThreads = Math.max(2, Math.min(6, os.cpus().length - 1));
+    // Official llama.cpp guidance: Use physical core count, not logical/SMT threads
+    const logicalCores = os.cpus().length;
+    const physicalCores = Math.max(2, Math.floor(logicalCores / 2));
+    const cpuThreads = Math.min(8, physicalCores);
 
     if (stats.vramTotalMb === 0) {
       return {
         ngl: 0,
         threads: cpuThreads,
-        recommendedContext: 2048,
+        recommendedContext: 4096,
         strategy: '100% CPU Execution (No GPU available)',
       };
     }
 
-    // 1000MB OS & Display Safety Buffer
-    const safetyBufferMb = 1000;
+    // Dynamic OS & Display Safety Buffer: 800MB for <=6GB GPUs, 1200MB for >=12GB GPUs
+    const safetyBufferMb = stats.vramTotalMb <= 6000 ? 800 : 1200;
     const usableVramMb = Math.max(0, stats.vramFreeMb - safetyBufferMb);
 
-    if (modelType === '1.5B' || modelType === '3B') {
+    // Approximate memory requirements per model parameter tier (Q4_K_M quant + KV cache)
+    const tierConfig: Record<string, { layers: number; mbPerLayer: number; fullGpuMb: number }> = {
+      '1.5B': { layers: 28, mbPerLayer: 45, fullGpuMb: 1800 },
+      '3B': { layers: 28, mbPerLayer: 80, fullGpuMb: 2800 },
+      '7B': { layers: 32, mbPerLayer: 145, fullGpuMb: 5200 },
+      '8B': { layers: 32, mbPerLayer: 155, fullGpuMb: 5600 },
+      '14B': { layers: 48, mbPerLayer: 195, fullGpuMb: 10200 },
+      '32B': { layers: 64, mbPerLayer: 320, fullGpuMb: 22000 },
+      'unknown': { layers: 32, mbPerLayer: 150, fullGpuMb: 5400 },
+    };
+
+    const target = tierConfig[modelType] || tierConfig['8B'];
+
+    // High-end hardware check: If usable VRAM fits the entire model + KV cache
+    if (usableVramMb >= target.fullGpuMb) {
+      const recContext = stats.vramTotalMb >= 12000 ? 16384 : 8192;
       return {
-        ngl: 99, // Offload all layers to GPU
-        threads: 2,
-        recommendedContext: 8192,
-        strategy: `100% GPU Offload (~${Math.min(2500, stats.vramFreeMb)}MB VRAM, Ultra Fast ~40-60 t/s)`,
+        ngl: 99, // 100% Full GPU offload
+        threads: Math.min(4, cpuThreads),
+        recommendedContext: recContext,
+        strategy: `100% GPU Offload (${stats.gpuName}, ~${target.fullGpuMb}MB VRAM, Cực nhanh ~50-120 t/s)`,
       };
     }
 
-    if (modelType === '7B' || modelType === '8B') {
-      // 7B/8B typically has 32-33 layers.
-      // In Q4_K_M quant, each layer takes ~125MB VRAM.
-      const maxGpuLayers = 32;
-      const safeGpuLayers = Math.max(0, Math.min(maxGpuLayers, Math.floor(usableVramMb / 125)));
-      const cpuLayers = maxGpuLayers - safeGpuLayers;
+    // Mid-range & Budget hardware: Calculate exact safe offload layers without OOM
+    const safeGpuLayers = Math.max(0, Math.min(target.layers, Math.floor(usableVramMb / target.mbPerLayer)));
+    const cpuLayers = target.layers - safeGpuLayers;
 
+    if (safeGpuLayers >= target.layers) {
       return {
-        ngl: safeGpuLayers,
+        ngl: 99,
+        threads: Math.min(4, cpuThreads),
+        recommendedContext: 8192,
+        strategy: `100% GPU Offload (${stats.gpuName}, ~${safeGpuLayers * target.mbPerLayer}MB VRAM)`,
+      };
+    }
+
+    if (safeGpuLayers === 0) {
+      return {
+        ngl: 0,
         threads: cpuThreads,
         recommendedContext: 4096,
-        strategy: `Hybrid: ${safeGpuLayers} layers on CUDA GPU (~${safeGpuLayers * 125}MB VRAM), ${cpuLayers} layers on CPU+RAM (~8-14 t/s)`,
+        strategy: `100% CPU Execution (VRAM khả dụng ${usableVramMb}MB không đủ cho layer GPU)`,
       };
     }
 
-    // 14B or larger
     return {
-      ngl: Math.max(0, Math.min(10, Math.floor(usableVramMb / 160))),
+      ngl: safeGpuLayers,
       threads: cpuThreads,
-      recommendedContext: 2048,
-      strategy: 'Heavy CPU Offload (Model exceeds 4GB VRAM capacity)',
+      recommendedContext: 4096,
+      strategy: `Hybrid: ${safeGpuLayers}/${target.layers} layers trên GPU CUDA (~${safeGpuLayers * target.mbPerLayer}MB VRAM), ${cpuLayers} layers trên CPU+RAM (~10-25 t/s)`,
     };
   }
 }

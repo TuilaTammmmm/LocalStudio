@@ -132,6 +132,9 @@ export class MultiProviderRouter {
       systemPrompt?: string;
       contextFiles?: Array<{ path: string; content: string }>;
       temperature?: number;
+      topP?: number;
+      maxTokens?: number;
+      repeatPenalty?: number;
     } = {}
   ): AsyncGenerator<StreamChunk, void, unknown> {
     const provider = this.getActiveProvider();
@@ -155,11 +158,47 @@ export class MultiProviderRouter {
     };
     this.db.addMessage(userMsg);
 
-    // 3. Collect historical session messages
+    // 3. Collect historical session messages with Dynamic Context Budget
     const history = this.db.getMessages(sessionId);
-    // Replace last message content with context-injected prompt for the LLM
-    const apiMessages = history.slice(0, -1);
-    apiMessages.push({ ...userMsg, content: finalPrompt });
+    const totalCtxLimit = provider.contextSize || 4096;
+    const maxTokensBudget = options.maxTokens || 2048;
+    // Target budget for historical turns: total context minus maxTokens generation space minus safety buffer (400)
+    const historyTokenBudget = Math.max(1000, totalCtxLimit - maxTokensBudget - 400);
+
+    // Approximate token count: ~3.5 chars per token for mixed Vietnamese & code
+    const estimateTokens = (text: string) => Math.ceil((text || '').length / 3.5);
+
+    const cleanedHistory = history
+      .slice(0, -1)
+      .map((m) =>
+        m.role === 'assistant'
+          ? {
+              ...m,
+              content: (m.content || '')
+                .replace(/<think>[\s\S]*?<\/think>/g, '')
+                .replace(/^(🚀|🔄|✅) \[LocalAI\].*$/gm, '')
+                .replace(/\n⚠️ \[Lỗi\][\s\S]*$/, '')
+                .trim(),
+            }
+          : m
+      )
+      .filter((m) => m.content);
+
+    // Accumulate from most recent messages backwards within token budget
+    const budgetedMessages: ChatMessage[] = [];
+    let currentTokens = estimateTokens(finalPrompt) + estimateTokens(options.systemPrompt || '');
+
+    for (let i = cleanedHistory.length - 1; i >= 0; i--) {
+      const msg = cleanedHistory[i];
+      const msgTokens = estimateTokens(msg.content);
+      if (currentTokens + msgTokens > historyTokenBudget && budgetedMessages.length >= 2) {
+        break; // Stop including older messages to prevent context overflow
+      }
+      budgetedMessages.unshift(msg);
+      currentTokens += msgTokens;
+    }
+
+    const apiMessages = [...budgetedMessages, { ...userMsg, content: finalPrompt }];
 
     // 4. Check & Auto-start local llama-server if selected
     if (provider.id === 'local-llama' || provider.type === 'llama-server') {
@@ -224,6 +263,9 @@ export class MultiProviderRouter {
       for await (const chunk of ProviderClient.streamChat(provider, apiMessages, {
         systemPrompt: options.systemPrompt,
         temperature: options.temperature,
+        topP: options.topP,
+        maxTokens: options.maxTokens,
+        repeatPenalty: options.repeatPenalty,
       })) {
         if (chunk.content) accumulatedContent += chunk.content;
         if (chunk.thinking) accumulatedThinking += chunk.thinking;

@@ -55,17 +55,6 @@ export class SkillsRunner {
       parts.push(
         `\n\n--- ACTIVE SKILL: ${triggeredSkill.name} ---\n${triggeredSkill.systemInstructions}\n--- END SKILL ---`
       );
-    } else {
-      // In autonomous mode, provide a concise summary of available skills to the LLM
-      const availableSummaries = activeSkills
-        .filter((s) => s.enabled)
-        .map((s) => `• ${s.name} (${s.triggers.join(', ')}): ${s.description}`);
-
-      if (availableSummaries.length > 0) {
-        parts.push(
-          `\n\n[Available Local Skills]:\n${availableSummaries.join('\n')}`
-        );
-      }
     }
 
     return parts.join('\n\n');

@@ -88,10 +88,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   } | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // Close preview on workspace switch
+  // Close preview and sync system prompt on workspace switch
   useEffect(() => {
     setViewingFile(null);
-  }, [activeWorkspace?.id]);
+    setSystemPrompt(activeWorkspace?.systemPrompt || '');
+  }, [activeWorkspace?.id, activeWorkspace?.systemPrompt]);
 
   // Esc key closes viewingFile
   useEffect(() => {

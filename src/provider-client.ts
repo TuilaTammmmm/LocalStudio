@@ -49,6 +49,8 @@ export class ProviderClient {
     options: {
       temperature?: number;
       maxTokens?: number;
+      topP?: number;
+      repeatPenalty?: number;
       systemPrompt?: string;
       model?: string;
     } = {}
@@ -71,13 +73,32 @@ export class ProviderClient {
       formattedMessages.push({ role: msg.role, content: msg.content });
     }
 
-    const payload = {
+    const isLocal =
+      provider.type === 'llama-server' ||
+      provider.id === 'local-llama' ||
+      /127\.0\.0\.1|localhost/.test(provider.baseUrl);
+
+    const payload: Record<string, unknown> = {
       model: options.model || provider.selectedModel,
       messages: formattedMessages,
       stream: true,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens,
+      temperature: options.temperature ?? 0.6,
+      top_p: options.topP ?? 0.9,
+      max_tokens: options.maxTokens || 4096,
     };
+
+    if (isLocal) {
+      // llama.cpp native anti-repetition samplers
+      payload.repeat_penalty = Math.min(options.repeatPenalty ?? 1.1, 1.2);
+      payload.repeat_last_n = 256;
+      payload.min_p = 0.05;
+      payload.dry_multiplier = 0.8; // DRY: chặn lặp cụm từ/câu dài
+      payload.dry_base = 1.75;
+      payload.dry_allowed_length = 2;
+      payload.dry_penalty_last_n = 0; // 0 = an toàn, tương thích với schema 0 <= val <= 2147483647
+    } else {
+      payload.frequency_penalty = 0.3;
+    }
 
     const res = await fetch(url, {
       method: 'POST',
@@ -97,6 +118,7 @@ export class ProviderClient {
     const reader = res.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
+    let insideThinkTag = false;
 
     try {
       while (true) {
@@ -122,14 +144,42 @@ export class ProviderClient {
             if (!choice) continue;
 
             const delta = choice.delta || {};
-            const content = delta.content || '';
-            // Support reasoning/thinking tokens (DeepSeek-R1 / Qwen / etc.)
-            const thinking = delta.reasoning_content || delta.thinking || undefined;
+            let rawContent = delta.content || '';
+            let rawThinking = delta.reasoning_content || delta.thinking || undefined;
 
-            if (content || thinking) {
+            // Stream state-machine parser for <think>...</think> (DeepSeek-R1 raw output)
+            if (rawContent) {
+              if (rawContent.includes('<think>')) {
+                insideThinkTag = true;
+                const parts = rawContent.split('<think>');
+                if (parts[0]) yield { content: parts[0], done: false, model: parsed.model };
+                rawContent = parts[1] || '';
+              }
+
+              if (insideThinkTag) {
+                if (rawContent.includes('</think>')) {
+                  insideThinkTag = false;
+                  const parts = rawContent.split('</think>');
+                  const thinkPart = parts[0] || '';
+                  const afterThinkContent = parts[1] || '';
+                  if (thinkPart) {
+                    yield { content: '', thinking: thinkPart, done: false, model: parsed.model };
+                  }
+                  if (afterThinkContent) {
+                    yield { content: afterThinkContent, done: false, model: parsed.model };
+                  }
+                  continue;
+                } else {
+                  yield { content: '', thinking: rawContent, done: false, model: parsed.model };
+                  continue;
+                }
+              }
+            }
+
+            if (rawContent || rawThinking) {
               yield {
-                content,
-                thinking,
+                content: rawContent,
+                thinking: rawThinking,
                 done: false,
                 model: parsed.model,
               };

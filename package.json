@@ -1,6 +1,6 @@
 {
   "name": "local-ai-studio",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "author": "LocalAI Team",
   "description": "Local AI Core Backend - Process Manager, Multi-Provider Router & Skills Engine",
   "main": "dist-electron/main.cjs",

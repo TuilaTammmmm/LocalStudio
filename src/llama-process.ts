@@ -41,9 +41,10 @@ export class LlamaProcessManager {
       '-ngl', config.ngl.toString(),
       '-c', config.ctxSize.toString(),
       '-t', config.threads.toString(),
+      '--context-shift', // Tự động trượt token cũ mượt mà theo tài liệu chính thức llama.cpp
     ];
 
-    if (config.flashAttention) {
+    if (config.flashAttention ?? true) {
       args.push('-fa', 'on');
     }
 

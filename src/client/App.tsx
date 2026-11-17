@@ -248,6 +248,13 @@ export default function App() {
           contextFiles: pinnedFiles,
           workspaceId: activeWorkspace?.id,
           model: activeModelName,
+          sampling: {
+            temperature: Number(localStorage.getItem('localai_temperature') || '0.6'),
+            topP: Number(localStorage.getItem('localai_topP') || '0.9'),
+            maxTokens: Number(localStorage.getItem('localai_maxTokens') || '4096'),
+            repeatPenalty: Number(localStorage.getItem('localai_repeatPenalty') || '1.1'),
+          },
+          defaultSystemPrompt: localStorage.getItem('localai_defaultSystemPrompt') || '',
         }),
         signal: abortController.signal,
       });
