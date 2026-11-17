@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Workspace, ChatSession, ChatMessage, ProviderConfig, LocalSkill } from './types.js';
+import type { ModelHubItem } from './model-hub.js';
 
 interface AppDatabase {
   workspaces: Record<string, Workspace>;
@@ -9,6 +10,7 @@ interface AppDatabase {
   providers: Record<string, ProviderConfig>;
   skillFolders: string[];
   skills: Record<string, LocalSkill>;
+  customHubModels?: Record<string, ModelHubItem>;
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
   activeProviderId: string | null;
@@ -26,6 +28,26 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     enabled: true,
   },
   {
+    id: 'ollama-local',
+    name: 'Ollama (Local Port 11434)',
+    type: 'ollama',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    models: ['llama3:latest', 'qwen2.5:latest'],
+    selectedModel: 'llama3:latest',
+    isDefault: false,
+    enabled: true,
+  },
+  {
+    id: 'lmstudio-local',
+    name: 'LM Studio (Local Port 1234)',
+    type: 'custom',
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    models: ['qwen2.5-coder-7b-instruct', 'meta-llama-3.1-8b-instruct'],
+    selectedModel: 'qwen2.5-coder-7b-instruct',
+    isDefault: false,
+    enabled: true,
+  },
+  {
     id: 'freellm-api',
     name: 'FreeLLM API (High-Performance)',
     type: 'freellm',
@@ -36,16 +58,6 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     isDefault: false,
     enabled: true,
   },
-  {
-    id: 'ollama-local',
-    name: 'Ollama (Local Port 11434)',
-    type: 'ollama',
-    baseUrl: 'http://127.0.0.1:11434/v1',
-    models: ['llama3:latest', 'qwen2.5:latest'],
-    selectedModel: 'llama3:latest',
-    isDefault: false,
-    enabled: false,
-  }
 ];
 
 export class DatabaseService {
@@ -67,7 +79,16 @@ export class DatabaseService {
     if (fs.existsSync(this.dbFilePath)) {
       try {
         const raw = fs.readFileSync(this.dbFilePath, 'utf-8');
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        if (!parsed.customHubModels) {
+          parsed.customHubModels = {};
+        }
+        for (const dp of DEFAULT_PROVIDERS) {
+          if (!parsed.providers[dp.id]) {
+            parsed.providers[dp.id] = dp;
+          }
+        }
+        return parsed;
       } catch (err) {
         console.error('Failed to parse database file, resetting with defaults:', err);
       }
@@ -196,6 +217,44 @@ export class DatabaseService {
     }
     this.persist();
     return provider;
+  }
+
+  public deleteProvider(id: string): boolean {
+    if (id === 'local-llama') {
+      return false; // Embedded local llama cannot be deleted
+    }
+    if (this.db.providers[id]) {
+      delete this.db.providers[id];
+      if (this.db.activeProviderId === id) {
+        this.db.activeProviderId = 'local-llama';
+      }
+      this.persist();
+      return true;
+    }
+    return false;
+  }
+
+  // Custom Hub Models (User-added from Hugging Face or URL)
+  public listCustomHubModels(): ModelHubItem[] {
+    return Object.values(this.db.customHubModels || {});
+  }
+
+  public saveCustomHubModel(model: ModelHubItem): ModelHubItem {
+    if (!this.db.customHubModels) {
+      this.db.customHubModels = {};
+    }
+    this.db.customHubModels[model.id] = model;
+    this.persist();
+    return model;
+  }
+
+  public deleteCustomHubModel(id: string): boolean {
+    if (this.db.customHubModels && this.db.customHubModels[id]) {
+      delete this.db.customHubModels[id];
+      this.persist();
+      return true;
+    }
+    return false;
   }
 
   // Skill Folders

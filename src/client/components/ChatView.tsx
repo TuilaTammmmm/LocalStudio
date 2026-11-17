@@ -31,6 +31,7 @@ interface ChatViewProps {
   isStreaming: boolean;
   onStopStreaming: () => void;
   onRemovePinnedFile: (file: string) => void;
+  onAttachFile?: (file: string) => void;
   lang?: Language;
   t?: Translations;
 }
@@ -53,6 +54,7 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
   isStreaming,
   onStopStreaming,
   onRemovePinnedFile,
+  onAttachFile,
   lang,
   t: propT,
 }) => {
@@ -69,32 +71,43 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
     return () => cancelAnimationFrame(id);
   }, [messages]);
 
-  const quickStarters = [
-    {
-      icon: <Code2 className="w-4 h-4 text-sky-400" />,
-      title: tr.quickStarterCodeTitle,
-      desc: tr.quickStarterCodeDesc,
-      prompt: tr.quickStarterCodePrompt,
-    },
-    {
-      icon: <Database className="w-4 h-4 text-emerald-400" />,
-      title: tr.quickStarterArchTitle,
-      desc: tr.quickStarterArchDesc,
-      prompt: tr.quickStarterArchPrompt,
-    },
-    {
-      icon: <Brain className="w-4 h-4 text-amber-400" />,
-      title: tr.quickStarterThinkTitle,
-      desc: tr.quickStarterThinkDesc,
-      prompt: tr.quickStarterThinkPrompt,
-    },
-    {
-      icon: <Zap className="w-4 h-4 text-purple-400" />,
-      title: tr.quickStarterTestTitle,
-      desc: tr.quickStarterTestDesc,
-      prompt: tr.quickStarterTestPrompt,
-    },
-  ];
+  const [isDragOverChat, setIsDragOverChat] = React.useState(false);
+
+  const handleChatDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOverChat(true);
+  };
+
+  const handleChatDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOverChat(false);
+  };
+
+  const handleChatDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOverChat(false);
+
+    const localAiData = e.dataTransfer.getData('application/x-localai-file');
+    const plainText = e.dataTransfer.getData('text/plain');
+
+    if (localAiData) {
+      try {
+        const parsed = JSON.parse(localAiData);
+        if (parsed.path && onAttachFile) {
+          onAttachFile(parsed.path);
+          return;
+        }
+      } catch {}
+    }
+
+    if (plainText && onAttachFile) {
+      onAttachFile(plainText);
+      return;
+    }
+  };
 
   if (!activeSession) {
     return (
@@ -111,51 +124,36 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0d1117] overflow-hidden relative">
+    <div
+      onDragOver={handleChatDragOver}
+      onDragLeave={handleChatDragLeave}
+      onDrop={handleChatDrop}
+      className="flex-1 flex flex-col h-full bg-[#0d1117] overflow-hidden relative"
+    >
+      {/* Global Chat Drop Cue Overlay */}
+      {isDragOverChat && (
+        <div className="absolute inset-0 z-50 bg-sky-950/70 backdrop-blur-sm border-2 border-dashed border-sky-400 flex items-center justify-center pointer-events-none animate-fade-in">
+          <div className="px-5 py-3 rounded-2xl bg-[#161b22] border border-sky-400 text-sky-300 font-bold text-sm shadow-2xl flex items-center space-x-2">
+            <Sparkles className="w-5 h-5 text-sky-400 animate-spin" />
+            <span>{currentLang === 'vi' ? 'Thả tệp vào đây để đính kèm vào ngữ cảnh chat' : 'Drop file here to attach to chat context'}</span>
+          </div>
+        </div>
+      )}
+
       {/* Messages Scroll Area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
-          <div className="min-h-full flex flex-col items-center justify-center p-8 max-w-3xl mx-auto space-y-10 animate-fade-in">
-            {/* Hero Section */}
-            <div className="text-center space-y-3">
-              <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-gradient-to-r from-sky-500/10 to-indigo-500/10 border border-sky-500/20 text-sky-400 text-xs font-medium">
-                <Sparkles className="w-3.5 h-3.5 animate-pulse-subtle" />
-                <span>Local AI Studio Core Active</span>
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+          <div className="min-h-full flex flex-col items-center justify-center p-8 max-w-2xl mx-auto space-y-4 animate-fade-in text-center">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500/20 to-indigo-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 shadow-xl shadow-sky-500/10">
+              <Sparkles className="w-6 h-6 animate-pulse-subtle" />
+            </div>
+            <div className="space-y-1.5">
+              <h1 className="text-2xl font-bold tracking-tight text-white">
                 {tr.whatToBuild}
               </h1>
-              <p className="text-sm text-gray-400 max-w-md mx-auto leading-relaxed">
+              <p className="text-xs text-gray-400 max-w-md mx-auto leading-relaxed">
                 {tr.runningOnHw}
               </p>
-            </div>
-
-            {/* Quick-Starter Cards Grid (Cursor/Claude Style) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 w-full">
-              {quickStarters.map((item, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onSendMessage(item.prompt)}
-                  className="group p-4 rounded-xl bg-[#161b22]/70 hover:bg-[#21262d] border border-[#30363d] hover:border-sky-500/40 text-left transition-all duration-200 hover:shadow-lg hover:shadow-sky-500/5 active:scale-[0.99] flex flex-col justify-between space-y-2"
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <div className="p-2 rounded-lg bg-[#0d1117] border border-[#30363d] group-hover:border-sky-500/30 transition-colors">
-                      {item.icon}
-                    </div>
-                    <span className="text-[10px] font-mono text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {tr.send} ↵
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-xs text-gray-200 group-hover:text-sky-400 transition-colors">
-                      {item.title}
-                    </h3>
-                    <p className="text-[11px] text-gray-400 leading-snug mt-0.5">
-                      {item.desc}
-                    </p>
-                  </div>
-                </button>
-              ))}
             </div>
           </div>
         ) : (
@@ -176,6 +174,7 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
             onStopStreaming={onStopStreaming}
             pinnedFiles={pinnedFiles}
             onRemovePinnedFile={onRemovePinnedFile}
+            onAttachFile={onAttachFile}
             availableSkills={availableSkills}
             fileTree={fileTree}
             providers={providers}

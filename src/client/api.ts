@@ -54,6 +54,15 @@ export const api = {
     await fetch(`${API_BASE}/workspaces/${id}`, { method: 'DELETE' });
   },
 
+  async updateWorkspace(id: string, data: Partial<Workspace>): Promise<Workspace> {
+    const res = await fetch(`${API_BASE}/workspaces/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
   async getWorkspaceTree(id: string): Promise<{ rootPath: string; tree: FileNode[] }> {
     const res = await fetch(`${API_BASE}/workspaces/${id}/tree`);
     return res.json();
@@ -76,6 +85,15 @@ export const api = {
 
   async deleteSession(id: string): Promise<void> {
     await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
+  },
+
+  async updateSession(id: string, data: Partial<ChatSession>): Promise<ChatSession> {
+    const res = await fetch(`${API_BASE}/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return res.json();
   },
 
   // Messages
@@ -110,6 +128,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ providerId }),
     });
+    return res.json();
+  },
+
+  async deleteProvider(id: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/providers/${id}`, { method: 'DELETE' });
     return res.json();
   },
 

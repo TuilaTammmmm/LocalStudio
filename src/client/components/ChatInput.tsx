@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { LocalSkill, ProviderConfig } from '../../types.js';
 import type { FileNode } from '../../workspace-fs.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
@@ -30,6 +30,7 @@ interface ChatInputProps {
   onStopStreaming: () => void;
   pinnedFiles: string[];
   onRemovePinnedFile: (file: string) => void;
+  onAttachFile?: (file: string) => void;
   availableSkills: LocalSkill[];
   fileTree: FileNode[];
   providers?: ProviderConfig[];
@@ -49,6 +50,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onStopStreaming,
   pinnedFiles,
   onRemovePinnedFile,
+  onAttachFile,
   availableSkills,
   fileTree,
   providers = [],
@@ -71,8 +73,93 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [showProviderMenu, setShowProviderMenu] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // User-draggable composer height (saved in localStorage)
+  const [composerHeight, setComposerHeight] = useState<number>(() => {
+    const saved = localStorage.getItem('localai_composer_height');
+    return saved ? parseInt(saved, 10) : 60;
+  });
+  const [isResizingInput, setIsResizingInput] = useState(false);
+  const dragStartY = useRef(0);
+  const dragStartHeight = useRef(60);
+
+  useEffect(() => {
+    if (!isResizingInput) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaY = dragStartY.current - e.clientY;
+      const newHeight = Math.min(420, Math.max(50, dragStartHeight.current + deltaY));
+      setComposerHeight(newHeight);
+    };
+    const handleMouseUp = () => {
+      setIsResizingInput(false);
+      localStorage.setItem('localai_composer_height', composerHeight.toString());
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingInput, composerHeight]);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    // 1. Dropped from internal FileTree or plaintext path
+    const localAiData = e.dataTransfer.getData('application/x-localai-file');
+    const plainText = e.dataTransfer.getData('text/plain');
+    if (localAiData) {
+      try {
+        const parsed = JSON.parse(localAiData);
+        if (parsed.path && !pinnedFiles.includes(parsed.path)) {
+          if (onAttachFile) onAttachFile(parsed.path);
+          return;
+        }
+      } catch {}
+    } else if (plainText) {
+      const cleanPath = plainText.trim();
+      if (onAttachFile && !pinnedFiles.includes(cleanPath)) {
+        onAttachFile(cleanPath);
+        return;
+      }
+    }
+
+    // 2. Dropped from OS Desktop / Explorer
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setAttachedImage({
+            name: file.name,
+            dataUrl: event.target?.result as string,
+          });
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const textContent = await file.text();
+        const snippet = `\`\`\`${file.name}\n${textContent.slice(0, 4000)}\n\`\`\`\n`;
+        setText((prev) => (prev ? `${prev}\n${snippet}` : snippet));
+      }
+    }
+  };
 
   // Flatten file list for @ autocomplete
   const flatFiles: string[] = [];
@@ -172,6 +259,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className="relative w-full">
+      {/* Click-outside backdrop for autocomplete */}
+      {autocompleteMode && (
+        <div
+          className="fixed inset-0 z-40 cursor-default"
+          onClick={() => setAutocompleteMode(null)}
+        />
+      )}
+
       {/* 1. Skill Suggestions Popup */}
       {autocompleteMode === 'skill' && (
         <div className="absolute bottom-full left-0 mb-3 w-84 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-slide-up backdrop-blur-xl">
@@ -239,12 +334,44 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       )}
 
       {/* 3. Floating Modern Composer Container */}
-      <div className="rounded-2xl bg-[#161b22] border border-[#30363d] shadow-2xl focus-within:border-sky-500/80 focus-within:ring-2 focus-within:ring-sky-500/20 transition-all duration-200 p-3 space-y-2.5">
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`rounded-2xl bg-[#161b22] border transition-all duration-200 p-3 space-y-2.5 relative ${
+          isDragOver
+            ? 'border-sky-500 bg-sky-500/10 ring-2 ring-sky-500/30'
+            : 'border-[#30363d] shadow-2xl focus-within:border-sky-500/80 focus-within:ring-2 focus-within:ring-sky-500/20'
+        }`}
+      >
+        {/* Drag handle to resize composer height */}
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsResizingInput(true);
+            dragStartY.current = e.clientY;
+            dragStartHeight.current = composerHeight;
+          }}
+          className="w-full h-3 -top-2 left-0 absolute cursor-ns-resize flex items-center justify-center group z-20"
+          title={currentLang === 'vi' ? 'Kéo lên/xuống để chỉnh độ cao khung chat' : 'Drag to resize composer height'}
+        >
+          <div className="w-12 h-1 rounded-full bg-white/10 group-hover:bg-sky-400 group-hover:w-20 transition-all duration-200" />
+        </div>
+
+        {isDragOver && (
+          <div className="absolute inset-0 bg-sky-950/80 backdrop-blur-sm rounded-2xl flex items-center justify-center z-30 pointer-events-none border-2 border-dashed border-sky-400">
+            <div className="flex items-center space-x-2 text-sky-300 font-semibold text-xs animate-bounce">
+              <Paperclip className="w-4 h-4" />
+              <span>{currentLang === 'vi' ? 'Thả tệp vào đây để thêm vào ngữ cảnh hội thoại' : 'Drop files here to attach to conversation context'}</span>
+            </div>
+          </div>
+        )}
+
         {/* Pinned Context Chips & Attached Image */}
         {(pinnedFiles.length > 0 || attachedImage) && (
           <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider shrink-0 mr-1">
-              Context:
+              {currentLang === 'vi' ? 'Tệp đính kèm:' : 'Attached Context:'}
             </span>
             {attachedImage && (
               <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[11px] font-mono shrink-0 shadow-sm animate-pulse-subtle">
@@ -283,15 +410,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         )}
 
-        {/* Text Input */}
+        {/* Text Input with dynamic height */}
         <textarea
           ref={textareaRef}
-          rows={2}
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
           placeholder={attachedImage ? tr.visionPlaceholder : tr.askPlaceholder}
-          className="w-full bg-transparent text-gray-100 placeholder-gray-500 text-sm focus:outline-none resize-none leading-relaxed px-1"
+          style={{ height: `${composerHeight}px` }}
+          className="w-full bg-transparent text-gray-100 placeholder-gray-500 text-sm focus:outline-none resize-none overflow-y-auto leading-relaxed px-1"
         />
 
         {/* Hidden File Input for Image Upload */}
@@ -368,8 +495,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               />
             )}
 
-            {/* 1. Provider Selector Pill */}
-            {providers.length > 0 && onSwitchProvider && (
+            {/* 1. Provider Selector Pill (Only enabled providers) */}
+            {providers.filter((p) => p.enabled !== false).length > 0 && onSwitchProvider && (
               <div className="relative z-50">
                 <button
                   type="button"
@@ -378,7 +505,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     setShowModelMenu(false);
                   }}
                   className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] text-xs text-gray-300 hover:text-white transition-all shadow-inner"
-                  title="Switch Provider"
+                  title={currentLang === 'vi' ? 'Chuyển đổi nhà cung cấp' : 'Switch Provider'}
                 >
                   {activeProvider?.type === 'llama-server' ? (
                     <Zap className="w-3 h-3 text-amber-400 shrink-0" />
@@ -394,9 +521,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 {showProviderMenu && (
                   <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-1.5 space-y-1 animate-slide-up backdrop-blur-xl">
                     <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-[#30363d] pb-1">
-                      Inference Provider
+                      {currentLang === 'vi' ? 'Nhà cung cấp suy luận' : 'Inference Provider'}
                     </div>
-                    {providers.map((p) => {
+                    {providers.filter((p) => p.enabled !== false).map((p) => {
                       const isCur = activeProvider?.id === p.id;
                       return (
                         <button
@@ -455,14 +582,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </button>
 
                 {showModelMenu && (
-                  <div className="absolute bottom-full right-0 mb-2 w-72 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1.5 animate-slide-up backdrop-blur-xl">
+                  <div className="absolute bottom-full right-0 mb-2 w-80 sm:w-96 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1.5 animate-slide-up backdrop-blur-xl">
                     <div className="relative">
                       <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
                         value={modelSearch}
                         onChange={(e) => setModelSearch(e.target.value)}
-                        placeholder={`Search ${activeProvider?.name.split('(')[0].trim() || ''} models...`}
+                        placeholder={currentLang === 'vi' ? 'Tìm kiếm mô hình...' : `Search models...`}
                         className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg pl-7 pr-2.5 py-1 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500/80"
                         autoFocus
                       />
@@ -491,10 +618,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       </button>
 
                       {/* Header for models of selected provider */}
-                      <div className="px-2 py-0.5 text-[9px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between border-t border-[#30363d]/50 pt-1.5 mt-1">
-                        <span>{activeProvider?.name.split('(')[0].trim() || 'Provider'} {tr.providerModels}</span>
-                        <span className="font-mono text-gray-500 text-[9px]">
-                          {(activeProvider?.models || []).length} available
+                      <div className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between border-t border-[#30363d]/50 pt-1.5 mt-1">
+                        <span className="truncate max-w-[200px]">{activeProvider?.name.split('(')[0].trim() || 'Provider'}</span>
+                        <span className="font-mono text-gray-500 text-[10px] shrink-0">
+                          {currentLang === 'vi'
+                            ? `${(activeProvider?.models || []).length} mô hình`
+                            : `${(activeProvider?.models || []).length} models`}
                         </span>
                       </div>
 

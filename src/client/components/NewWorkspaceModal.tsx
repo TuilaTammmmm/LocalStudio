@@ -45,6 +45,17 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
     }
   }, [isOpen]);
 
+  // Close on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handlePickNativeFolder = async () => {

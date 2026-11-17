@@ -32,6 +32,37 @@ const BINARY_EXTENSIONS = new Set([
 
 export class WorkspaceFS {
   /**
+   * Validates that targetPath is strictly inside workspaceRoot.
+   * Protects against directory traversal attacks (../, absolute paths outside root, junction points).
+   */
+  public static isSafePath(workspaceRoot: string, targetPath: string): boolean {
+    if (!workspaceRoot || !targetPath) return false;
+    try {
+      const resolvedRoot = path.resolve(workspaceRoot);
+      const resolvedTarget = path.isAbsolute(targetPath)
+        ? path.resolve(targetPath)
+        : path.resolve(resolvedRoot, targetPath);
+      const relative = path.relative(resolvedRoot, resolvedTarget);
+      return !relative.startsWith('..') && !path.isAbsolute(relative);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Safely resolves a path within workspace root, throwing an error if it traverses outside.
+   */
+  public static resolveSafePath(workspaceRoot: string, targetPath: string): string {
+    if (!this.isSafePath(workspaceRoot, targetPath)) {
+      throw new Error(`Security Violation: Path traversal outside workspace boundary (${targetPath})`);
+    }
+    const resolvedRoot = path.resolve(workspaceRoot);
+    return path.isAbsolute(targetPath)
+      ? path.resolve(targetPath)
+      : path.resolve(resolvedRoot, targetPath);
+  }
+
+  /**
    * Scan folder tree recursively with ignore list
    */
   public static getFileTree(

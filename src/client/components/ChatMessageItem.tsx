@@ -10,6 +10,7 @@ import {
   Check,
   Sparkles,
   Terminal,
+  Zap,
 } from 'lucide-react';
 
 interface ChatMessageItemProps {

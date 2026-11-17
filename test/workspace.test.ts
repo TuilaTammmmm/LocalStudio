@@ -22,6 +22,19 @@ async function run() {
     throw new Error('Failed to load context files');
   }
 
+  // 3. Test Path Traversal Protection
+  if (!WorkspaceFS.isSafePath(root, 'src/types.ts')) {
+    throw new Error('Valid workspace path was incorrectly rejected');
+  }
+  if (WorkspaceFS.isSafePath(root, '../../Windows/System32/calc.exe')) {
+    throw new Error('Path traversal attack ../../ was not caught by isSafePath');
+  }
+  const trappedContext = ContextBuilder.buildContext(root, ['../../Windows/System32/calc.exe']);
+  if (trappedContext.files.length !== 0 || trappedContext.warnings.length === 0) {
+    throw new Error('ContextBuilder allowed directory traversal attack');
+  }
+  console.log('Path traversal protection verified: blocked unauthorized file access.');
+
   console.log('✅ Phase 4 Workspace & File Tree Engine verification PASSED!');
 }
 

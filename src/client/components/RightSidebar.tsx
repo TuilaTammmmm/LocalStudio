@@ -23,6 +23,8 @@ import {
   Plus,
   X,
   Trash2,
+  Eye,
+  Copy,
 } from 'lucide-react';
 
 interface RightSidebarProps {
@@ -72,6 +74,85 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   const [command, setCommand] = useState('');
   const [terminalLogs, setTerminalLogs] = useState<Array<{ text: string; isError?: boolean }>>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [selectedShell, setSelectedShell] = useState<'powershell' | 'cmd' | 'bash'>('powershell');
+
+  // In-app file viewer state
+  const [viewingFile, setViewingFile] = useState<{
+    path: string;
+    name: string;
+    content: string;
+    isImage?: boolean;
+    dataUrl?: string;
+    loading: boolean;
+    error?: string;
+  } | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  // Esc key closes viewingFile
+  useEffect(() => {
+    if (!viewingFile) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setViewingFile(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewingFile]);
+
+  const handleOpenFilePreview = async (node: FileNode) => {
+    if (!activeWorkspace) return;
+    setViewingFile({
+      path: node.relativePath,
+      name: node.name,
+      content: '',
+      loading: true,
+    });
+    try {
+      const res = await fetch(getApiUrl(`/api/workspaces/${activeWorkspace.id}/file?path=${encodeURIComponent(node.relativePath)}`));
+      const data = await res.json();
+      if (data.isImage && data.dataUrl) {
+        setViewingFile({
+          path: node.relativePath,
+          name: node.name,
+          content: '',
+          isImage: true,
+          dataUrl: data.dataUrl,
+          loading: false,
+        });
+      } else if (data.content !== undefined) {
+        setViewingFile({
+          path: node.relativePath,
+          name: node.name,
+          content: data.content,
+          isImage: false,
+          loading: false,
+        });
+      } else {
+        setViewingFile({
+          path: node.relativePath,
+          name: node.name,
+          content: '',
+          loading: false,
+          error: data.error || (currentLang === 'vi' ? 'Không thể đọc nội dung tệp tin này.' : 'Failed to read file content.'),
+        });
+      }
+    } catch (err: any) {
+      setViewingFile({
+        path: node.relativePath,
+        name: node.name,
+        content: '',
+        loading: false,
+        error: err.message,
+      });
+    }
+  };
+
+  const handleCopyFileContent = (content: string) => {
+    navigator.clipboard.writeText(content);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2000);
+  };
 
   // Browser state
   const [browserUrl, setBrowserUrl] = useState('http://localhost:3000');
@@ -150,7 +231,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
       const res = await fetch(getApiUrl('/api/terminal/run'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd, cwd: activeWorkspace?.folderPath }),
+        body: JSON.stringify({
+          command: cmd,
+          cwd: activeWorkspace?.folderPath,
+          shell: selectedShell,
+        }),
       });
       const data = await res.json();
       if (data.stdout) {
@@ -289,7 +374,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
               <span className="font-semibold text-gray-300 truncate max-w-[180px]">
                 {activeWorkspace?.name ? `${activeWorkspace.name} - ${tr.projectExplorer}` : tr.projectExplorer}
               </span>
-              <span className="text-[10px] text-gray-500 font-sans">{tr.clickToPin}</span>
+              <span className="text-[10px] text-gray-500 font-sans">
+                {currentLang === 'vi' ? 'Bấm xem • Kéo vào Chat' : 'Preview • Drag to Chat'}
+              </span>
             </div>
             {fileTree.length === 0 ? (
               <div className="p-4 text-center text-xs text-gray-500 font-sans">
@@ -298,11 +385,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
             ) : (
               <div className="space-y-0.5">
                 {fileTree.map((node) => (
-                  <FileTreeNodeItem
+                  <FileTreeNode
                     key={node.path}
                     node={node}
                     pinnedFiles={pinnedFiles}
                     onTogglePin={onTogglePinFile}
+                    onOpenFile={handleOpenFilePreview}
                   />
                 ))}
               </div>
@@ -332,15 +420,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
               ))}
             </div>
 
-            {/* Command Input Box */}
+            {/* Command Input Box with Shell Picker */}
             <div className="space-y-1.5 shrink-0">
               <div className="flex items-center space-x-1.5">
                 <input
                   type="text"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleRunCommand()}
-                  placeholder={tr.terminalPlaceholder}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleRunCommand();
+                    else if (e.key === 'Escape') setCommand('');
+                  }}
+                  placeholder={currentLang === 'vi' ? 'Nhập lệnh thực thi... (Enter để chạy, Esc để xóa)' : 'Enter command... (Enter to run, Esc to clear)'}
                   className="flex-1 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-xs text-gray-200 font-mono focus:outline-none focus:border-sky-500"
                 />
                 <button
@@ -354,12 +445,29 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
                 </button>
               </div>
 
-              <div className="flex items-center justify-between text-[10px] text-gray-400 px-1">
-                <span>{tr.shellCore}</span>
+              <div className="flex items-center justify-between text-[10px] text-gray-400 px-1 pt-0.5">
+                {/* Shell Type Switcher */}
+                <div className="flex items-center space-x-1 p-0.5 rounded-lg bg-black/40 border border-white/10">
+                  {(['powershell', 'cmd', 'bash'] as const).map((sh) => (
+                    <button
+                      key={sh}
+                      type="button"
+                      onClick={() => setSelectedShell(sh)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase font-bold transition-colors ${
+                        selectedShell === sh
+                          ? 'bg-sky-500 text-slate-950 shadow-sm'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {sh === 'powershell' ? 'PowerShell' : sh.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => setTerminalLogs([])}
-                  className="text-gray-400 hover:text-white transition-colors"
+                  className="text-gray-400 hover:text-white transition-colors text-[10px]"
                 >
                   {tr.clearLogs}
                 </button>
@@ -515,6 +623,94 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
           )}
         </div>
       </div>
+
+      {/* File Preview Modal / Viewer */}
+      {viewingFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="px-5 py-3.5 border-b border-[#30363d] flex items-center justify-between bg-[#0d1117]">
+              <div className="flex items-center space-x-2.5 truncate mr-3">
+                <FileCode className="w-4 h-4 text-sky-400 shrink-0" />
+                <span className="font-bold text-sm text-white truncate">{viewingFile.name}</span>
+                <span className="text-[11px] text-gray-400 font-mono truncate hidden sm:inline">
+                  {viewingFile.path}
+                </span>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onTogglePinFile(viewingFile.path)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 border transition-all ${
+                    pinnedFiles.includes(viewingFile.path)
+                      ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                      : 'bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white border-[#30363d]'
+                  }`}
+                >
+                  <Pin className="w-3.5 h-3.5" />
+                  <span>
+                    {pinnedFiles.includes(viewingFile.path)
+                      ? (currentLang === 'vi' ? 'Đã thêm vào Chat' : 'In Context')
+                      : (currentLang === 'vi' ? 'Thêm vào Chat' : 'Add to Chat')}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopyFileContent(viewingFile.content)}
+                  className="px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 hover:text-white border border-[#30363d] text-xs font-semibold flex items-center space-x-1.5 transition-all"
+                  title="Sao chép nội dung tệp"
+                >
+                  {copySuccess ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400">{currentLang === 'vi' ? 'Đã chép!' : 'Copied!'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>{currentLang === 'vi' ? 'Sao chép' : 'Copy'}</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingFile(null)}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-auto p-4 bg-[#0d1117] font-mono text-xs">
+              {viewingFile.loading ? (
+                <div className="flex items-center justify-center py-12 text-gray-400 space-x-2">
+                  <RotateCw className="w-4 h-4 animate-spin text-sky-400" />
+                  <span>{currentLang === 'vi' ? 'Đang đọc tệp tin...' : 'Reading file...'}</span>
+                </div>
+              ) : viewingFile.error ? (
+                <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                  {viewingFile.error}
+                </div>
+              ) : viewingFile.isImage && viewingFile.dataUrl ? (
+                <div className="flex flex-col items-center justify-center p-6 space-y-3">
+                  <img
+                    src={viewingFile.dataUrl}
+                    alt={viewingFile.name}
+                    className="max-w-full max-h-[60vh] object-contain rounded-lg border border-[#30363d] shadow-lg"
+                  />
+                  <span className="text-[11px] text-gray-400 font-mono">{viewingFile.name}</span>
+                </div>
+              ) : (
+                <pre className="text-gray-200 whitespace-pre-wrap break-all word-break leading-relaxed select-text font-mono">
+                  {viewingFile.content}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 });
@@ -524,7 +720,8 @@ const FileTreeNode: React.FC<{
   node: FileNode;
   pinnedFiles: string[];
   onTogglePin: (relPath: string) => void;
-}> = React.memo(({ node, pinnedFiles, onTogglePin }) => {
+  onOpenFile: (node: FileNode) => void;
+}> = React.memo(({ node, pinnedFiles, onTogglePin, onOpenFile }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const isPinned = pinnedFiles.includes(node.relativePath);
 
@@ -551,6 +748,7 @@ const FileTreeNode: React.FC<{
                 node={child}
                 pinnedFiles={pinnedFiles}
                 onTogglePin={onTogglePin}
+                onOpenFile={onOpenFile}
               />
             ))}
           </div>
@@ -560,22 +758,32 @@ const FileTreeNode: React.FC<{
   }
 
   return (
-    <div className="group flex items-center justify-between py-1 px-2 rounded-lg hover:bg-white/[0.06] text-xs text-gray-300 transition-colors">
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', node.relativePath);
+        e.dataTransfer.setData(
+          'application/x-localai-file',
+          JSON.stringify({ path: node.relativePath, name: node.name })
+        );
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+      onClick={() => onOpenFile(node)}
+      className="group flex items-center justify-between py-1 px-2 rounded-lg hover:bg-white/[0.08] cursor-pointer text-xs text-gray-300 transition-colors select-none"
+      title="Bấm để xem tệp • Kéo vào ô chat để đính kèm"
+    >
       <div className="flex items-center space-x-1.5 truncate">
-        <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-        <span className="truncate font-mono text-[11px]">{node.name}</span>
+        <FileCode className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+        <span className="truncate font-mono text-[11px] group-hover:text-white transition-colors">{node.name}</span>
       </div>
-      <button
-        onClick={() => onTogglePin(node.relativePath)}
-        title={isPinned ? 'Unpin from context' : 'Pin to context'}
-        className={`p-1 rounded transition-colors ${
-          isPinned
-            ? 'text-sky-400 bg-sky-500/20'
-            : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-sky-400 hover:bg-white/10'
-        }`}
-      >
-        <Pin className="w-3 h-3" />
-      </button>
+      <div className="flex items-center space-x-1.5">
+        <Eye className="w-3.5 h-3.5 text-gray-500 group-hover:text-sky-400 transition-colors shrink-0" />
+        {isPinned && (
+          <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 font-mono">
+            Đính kèm
+          </span>
+        )}
+      </div>
     </div>
   );
 });

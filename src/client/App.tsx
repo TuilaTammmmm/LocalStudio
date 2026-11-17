@@ -95,7 +95,7 @@ export default function App() {
           if (!prev) return hw.stats;
           if (
             Math.abs(prev.vramUsedMb - hw.stats.vramUsedMb) < 20 &&
-            prev.gpuUtilization === hw.stats.gpuUtilization
+            prev.gpuUtilPercent === hw.stats.gpuUtilPercent
           ) {
             return prev;
           }
@@ -105,6 +105,40 @@ export default function App() {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Prevent default browser right-click menu (Back, Reload, Inspect, Print...) in desktop app
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('contextmenu', handleContextMenu);
+    return () => window.removeEventListener('contextmenu', handleContextMenu);
+  }, []);
+
+  // Workspace & Session Rename Handlers
+  const handleRenameSession = async (sessionId: string, newTitle: string) => {
+    try {
+      const updated = await api.updateSession(sessionId, { title: newTitle });
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)));
+      if (activeSession?.id === sessionId) {
+        setActiveSession(updated);
+      }
+    } catch (err) {
+      console.error('Failed to rename session:', err);
+    }
+  };
+
+  const handleRenameWorkspace = async (workspaceId: string, newName: string) => {
+    try {
+      const updated = await api.updateWorkspace(workspaceId, { name: newName });
+      setWorkspaces((prev) => prev.map((w) => (w.id === workspaceId ? updated : w)));
+      if (activeWorkspace?.id === workspaceId) {
+        setActiveWorkspace(updated);
+      }
+    } catch (err) {
+      console.error('Failed to rename workspace:', err);
+    }
+  };
 
   // 2. When active workspace changes: Load tree & sessions
   useEffect(() => {
@@ -328,6 +362,35 @@ export default function App() {
     );
   };
 
+  // Global Hotkeys: Ctrl+, (Settings), Ctrl+N (New Chat), Ctrl+O (New/Open Workspace), Ctrl+B (Toggle Right Sidebar), Esc (Close modals)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+      if (isCtrlOrCmd && e.key === ',') {
+        e.preventDefault();
+        setIsSettingsOpen((prev) => !prev);
+      } else if (isCtrlOrCmd && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault();
+        handleNewChat();
+      } else if (isCtrlOrCmd && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        setIsRightSidebarOpen((prev) => !prev);
+      } else if (isCtrlOrCmd && (e.key === 'o' || e.key === 'O')) {
+        e.preventDefault();
+        setIsNewWorkspaceOpen(true);
+      } else if (e.key === 'Escape') {
+        if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+        } else if (isNewWorkspaceOpen) {
+          setIsNewWorkspaceOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isSettingsOpen, isNewWorkspaceOpen, activeWorkspace, sessions.length]);
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0d1117] text-[#e6edf3]">
       {/* 1. Top Header */}
@@ -374,6 +437,8 @@ export default function App() {
           onNewChat={handleNewChat}
           onNewWorkspace={() => setIsNewWorkspaceOpen(true)}
           onDeleteSession={handleDeleteSession}
+          onRenameSession={handleRenameSession}
+          onRenameWorkspace={handleRenameWorkspace}
           onOpenSettings={() => setIsSettingsOpen(true)}
         />
 
@@ -411,6 +476,9 @@ export default function App() {
           isStreaming={isStreaming}
           onStopStreaming={handleStopStreaming}
           onRemovePinnedFile={handleTogglePinFile}
+          onAttachFile={(filePath) => {
+            setPinnedFiles((prev) => (prev.includes(filePath) ? prev : [...prev, filePath]));
+          }}
         />
 
         {/* Right: Folder Tools (FileTree, Shell/Terminal, Web/Browser, RAG, Prompt) */}
@@ -453,8 +521,20 @@ export default function App() {
         }}
         onSaveProvider={async (p) => {
           const saved = await api.saveProvider(p);
-          setProviders((prev) => prev.map((item) => (item.id === saved.id ? saved : item)));
-          if (activeProvider?.id === saved.id) setActiveProvider(saved);
+          setProviders((prev) => {
+            const exists = prev.some((item) => item.id === saved.id);
+            if (exists) return prev.map((item) => (item.id === saved.id ? saved : item));
+            return [...prev, saved];
+          });
+          if (activeProvider?.id === saved.id || p.isDefault) setActiveProvider(saved);
+        }}
+        onDeleteProvider={async (id) => {
+          await api.deleteProvider(id);
+          setProviders((prev) => prev.filter((item) => item.id !== id));
+          if (activeProvider?.id === id) {
+            const fallback = providers.find((item) => item.id !== id) || null;
+            setActiveProvider(fallback);
+          }
         }}
         onSyncProvider={(id) => api.syncProvider(id)}
       />

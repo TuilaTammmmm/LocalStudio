@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { WorkspaceFS } from './workspace-fs.js';
 
 export interface ContextFile {
   relativePath: string;
@@ -39,8 +40,8 @@ export class ContextBuilder {
       const fullPath = path.resolve(workspaceRoot, relPath);
 
       // Prevent directory traversal attacks
-      if (!fullPath.startsWith(path.resolve(workspaceRoot))) {
-        warnings.push(`Security: Ignored path outside workspace: ${relPath}`);
+      if (!WorkspaceFS.isSafePath(workspaceRoot, relPath)) {
+        warnings.push(`Security: Ignored path outside workspace boundary: ${relPath}`);
         continue;
       }
 

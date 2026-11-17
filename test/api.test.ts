@@ -62,6 +62,48 @@ async function run() {
   if (sessList.length !== 1) throw new Error('Expected 1 session in workspace');
   console.log(`[GET /api/workspaces/:id/sessions] Retrieved ${sessList.length} session(s)`);
 
+  // 6. Test Safe Workspace File Reading & Path Traversal Block
+  const safeFileRes = await app.request(`/api/workspaces/${createdWs.id}/file?path=package.json`);
+  if (safeFileRes.status !== 200) throw new Error('Failed to read legitimate workspace file');
+  const safeFileData: any = await safeFileRes.json();
+  if (!safeFileData.content.includes('local-ai-backend')) throw new Error('Invalid file content returned');
+
+  const attackFileRes = await app.request(`/api/workspaces/${createdWs.id}/file?path=../../Windows/System32/drivers/etc/hosts`);
+  if (attackFileRes.status !== 403) throw new Error(`Expected 403 for directory traversal, got ${attackFileRes.status}`);
+  console.log('[Security] Workspace path traversal attempt blocked with 403 Forbidden.');
+
+  // 7. Test Terminal Security Sandbox
+  const safeCmdRes = await app.request('/api/terminal/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'Write-Output "Sandbox Test OK"' }),
+  });
+  if (safeCmdRes.status !== 200) throw new Error('Safe terminal command failed');
+  const safeCmdData: any = await safeCmdRes.json();
+  if (!safeCmdData.stdout.includes('Sandbox Test OK')) throw new Error('Terminal output mismatch');
+
+  const dangerousCmdRes = await app.request('/api/terminal/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'rmdir /s /q C:\\' }),
+  });
+  if (dangerousCmdRes.status !== 403) throw new Error(`Expected 403 for dangerous command, got ${dangerousCmdRes.status}`);
+  const dangerData: any = await dangerousCmdRes.json();
+  if (!dangerData.blocked) throw new Error('Dangerous command was not flagged as blocked');
+  console.log('[Security] Destructive command "rmdir /s /q C:\\" blocked by Sandbox.');
+
+  // 8. Test Model Downloader & Cancel
+  const downloadRes = await app.request('/api/models/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelId: 'test-model', modelName: 'Test Model', fileSizeBytes: 1000000 }),
+  });
+  if (downloadRes.status !== 200) throw new Error('Failed to start download');
+  const cancelRes = await app.request('/api/models/downloads/test-model/cancel', { method: 'POST' });
+  const cancelData: any = await cancelRes.json();
+  if (!cancelData.success) throw new Error('Failed to cancel download');
+  console.log('[Downloader] Model download started and canceled successfully.');
+
   // Clean up
   fs.rmSync(testDir, { recursive: true, force: true });
   console.log('✅ Phase 6 REST API Integration verification PASSED!');

@@ -19,6 +19,8 @@ build/
 *.sqlite
 *.sqlite3
 *.db
+*.tmp
+*.bak
 
 # AI Models & Executable Binaries (Keep models/ directory with .gitkeep, ignore weights)
 models/*.gguf
@@ -28,11 +30,18 @@ bin/*.dll
 bin/*.so
 bin/*.dylib
 llama-server.exe
+*.exe
+*.dll
 
 # Environment Variables & Private Secrets
 .env
 .env.*
 !.env.example
+
+# State & Token Caches
+.codegraph/*.json
+.codegraph/architecture_map.md
+.atomic/
 
 # Logs & Temporary files
 *.log

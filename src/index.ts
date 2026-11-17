@@ -22,6 +22,16 @@ const server = serve({
   port: PORT,
 });
 
+server.on('error', (err: any) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n⚠️ Port ${PORT} is already in use by another instance.`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', err);
+    process.exit(1);
+  }
+});
+
 const cleanup = async () => {
   console.log('\nShutting down Local AI Backend Core...');
   await llamaManager.stopServer();

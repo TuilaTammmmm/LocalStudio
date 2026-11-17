@@ -10,10 +10,10 @@ import { ContextBuilder } from './context-builder.js';
 import { SkillsScanner } from './skills-scanner.js';
 import { SkillsRunner } from './skills-runner.js';
 import { AutoModelRouter, DEFAULT_AUTO_ROUTE_CONFIG } from './auto-router.js';
-import { ModelHubService, CURATED_MODELS } from './model-hub.js';
+import { ModelHubService, CURATED_MODELS, type ModelHubItem } from './model-hub.js';
 import { ModelDownloaderService } from './model-downloader.js';
 import { AppUpdater } from './updater.js';
-import { exec } from 'node:child_process';
+import { exec, spawn, execFile } from 'node:child_process';
 import util from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
@@ -51,7 +51,9 @@ export function createServer(
   // 1.1 LM Studio-Style Model Hub & Compatibility
   app.get('/api/models/hub', async (c) => {
     const stats = await hwMonitor.getStats();
-    const modelsWithCompatibility = CURATED_MODELS.map((model) => {
+    const customModels = db.listCustomHubModels();
+    const allModels = [...CURATED_MODELS, ...customModels];
+    const modelsWithCompatibility = allModels.map((model) => {
       const evaluation = ModelHubService.evaluateCompatibility(
         model,
         stats.vramTotalMb || 4096,
@@ -73,9 +75,71 @@ export function createServer(
     });
   });
 
-  // 1.2 Model Downloader Endpoints
+  // 1.1.1 Add Custom Model to Hub (Hugging Face / Direct URL)
+  app.post('/api/models/hub/custom', async (c) => {
+    const body = await c.req.json();
+    if (!body.name || !body.downloadUrl) {
+      return c.json({ error: 'Name and downloadUrl are required' }, 400);
+    }
+    const id = body.id || `custom-${Date.now()}`;
+    const filename = body.filename || `${body.name.replace(/\s+/g, '-').toLowerCase()}.gguf`;
+    const customModel: ModelHubItem = {
+      id,
+      name: body.name,
+      filename,
+      author: body.author || 'Community',
+      description: body.description || `Custom model added from Hugging Face / URL`,
+      parameterSize: body.parameterSize || '7B',
+      quantization: body.quantization || 'Q4_K_M',
+      fileSizeBytes: Number(body.fileSizeBytes) || 4_000_000_000,
+      totalLayers: Number(body.totalLayers) || 32,
+      downloadUrl: body.downloadUrl,
+      tags: Array.isArray(body.tags) ? body.tags : ['HuggingFace', 'Custom'],
+      category: body.category || 'general',
+    };
+    db.saveCustomHubModel(customModel);
+    return c.json(customModel);
+  });
+
+  // 1.1.2 Delete Custom Model from Hub
+  app.delete('/api/models/hub/custom/:id', (c) => {
+    const id = c.req.param('id');
+    const deleted = db.deleteCustomHubModel(id);
+    return c.json({ success: deleted });
+  });
+
+  // 1.2 Model Downloader Endpoints & Real-time Stream
   app.get('/api/models/downloads', (c) => {
     return c.json(ModelDownloaderService.getTasks());
+  });
+
+  app.get('/api/models/downloads/stream', (c) => {
+    return streamSSE(c, async (stream) => {
+      // Send initial snapshot of tasks
+      await stream.writeSSE({
+        event: 'initial',
+        data: JSON.stringify(ModelDownloaderService.getTasks()),
+      });
+
+      const unsubscribe = ModelDownloaderService.subscribe(async (task) => {
+        try {
+          await stream.writeSSE({
+            event: 'progress',
+            data: JSON.stringify(task),
+          });
+        } catch {}
+      });
+
+      // Keep stream alive
+      stream.onAbort(() => {
+        unsubscribe();
+      });
+
+      while (!stream.aborted) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      unsubscribe();
+    });
   });
 
   app.post('/api/models/download', async (c) => {
@@ -86,6 +150,12 @@ export function createServer(
       fileSizeBytes || 2_000_000_000
     );
     return c.json(task);
+  });
+
+  app.post('/api/models/downloads/:id/cancel', (c) => {
+    const id = c.req.param('id');
+    const canceled = ModelDownloaderService.cancelDownload(id);
+    return c.json({ success: canceled });
   });
 
   // 2. Workspaces & File Tree
@@ -113,6 +183,21 @@ export function createServer(
     return c.json({ success: true });
   });
 
+  app.patch('/api/workspaces/:id', async (c) => {
+    const id = c.req.param('id');
+    const ws = db.getWorkspace(id);
+    if (!ws) return c.json({ error: 'Workspace not found' }, 404);
+    const body = await c.req.json();
+    if (body.name && typeof body.name === 'string') {
+      ws.name = body.name.trim() || ws.name;
+    }
+    if (body.systemPrompt !== undefined) {
+      ws.systemPrompt = body.systemPrompt;
+    }
+    const updated = db.saveWorkspace(ws);
+    return c.json(updated);
+  });
+
   app.get('/api/workspaces/:id/tree', (c) => {
     const id = c.req.param('id');
     const ws = db.getWorkspace(id);
@@ -120,6 +205,48 @@ export function createServer(
 
     const tree = WorkspaceFS.getFileTree(ws.folderPath, 5);
     return c.json({ rootPath: ws.folderPath, tree });
+  });
+
+  app.get('/api/workspaces/:id/file', (c) => {
+    const id = c.req.param('id');
+    const relPath = c.req.query('path');
+    if (!relPath) return c.json({ error: 'Query parameter "path" is required' }, 400);
+
+    const ws = db.getWorkspace(id);
+    if (!ws) return c.json({ error: 'Workspace not found' }, 404);
+
+    try {
+      // Normalize slashes for safe resolution on Windows
+      const normalizedRel = relPath.replace(/\//g, path.sep);
+      const safePath = WorkspaceFS.resolveSafePath(ws.folderPath, normalizedRel);
+      if (!fs.existsSync(safePath) || fs.statSync(safePath).isDirectory()) {
+        return c.json({ error: 'File not found' }, 404);
+      }
+
+      const stat = fs.statSync(safePath);
+      // Large file protection: slice first 150KB for fast preview
+      if (stat.size > 1.5 * 1024 * 1024) {
+        const fd = fs.openSync(safePath, 'r');
+        const buf = Buffer.alloc(120 * 1024);
+        const bytesRead = fs.readSync(fd, buf, 0, 120 * 1024, 0);
+        fs.closeSync(fd);
+        const content = buf.toString('utf-8', 0, bytesRead) + `\n\n... [File truncated for preview: ${(stat.size / (1024 * 1024)).toFixed(2)} MB total]`;
+        return c.json({ path: relPath, content, size: stat.size, truncated: true });
+      }
+
+      // Check if file is image or binary
+      const ext = path.extname(safePath).toLowerCase();
+      if (['.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico'].includes(ext)) {
+        const base64 = fs.readFileSync(safePath).toString('base64');
+        const mime = ext === '.ico' ? 'image/x-icon' : `image/${ext.replace('.', '')}`;
+        return c.json({ path: relPath, isImage: true, dataUrl: `data:${mime};base64,${base64}`, size: stat.size });
+      }
+
+      const content = fs.readFileSync(safePath, 'utf-8');
+      return c.json({ path: relPath, content, size: stat.size });
+    } catch (err: any) {
+      return c.json({ error: err.message || 'Access denied or invalid file' }, 403);
+    }
   });
 
   // 3. Sessions (Chats inside a Workspace)
@@ -152,6 +279,18 @@ export function createServer(
     return c.json({ success: true });
   });
 
+  app.patch('/api/sessions/:id', async (c) => {
+    const sessId = c.req.param('id');
+    const session = db.getSession(sessId);
+    if (!session) return c.json({ error: 'Session not found' }, 404);
+    const body = await c.req.json();
+    if (body.title && typeof body.title === 'string') {
+      session.title = body.title.trim() || session.title;
+    }
+    const updated = db.saveSession(session);
+    return c.json(updated);
+  });
+
   // 4. Providers & API Keys (FreeLLM, OpenAI, Local)
   app.get('/api/providers', (c) => {
     return c.json({
@@ -176,6 +315,12 @@ export function createServer(
     const { providerId } = await c.req.json();
     const active = await router.switchProvider(providerId);
     return c.json(active);
+  });
+
+  app.delete('/api/providers/:id', (c) => {
+    const id = c.req.param('id');
+    const deleted = db.deleteProvider(id);
+    return c.json({ success: deleted });
   });
 
   // 5. Local Skills
@@ -265,20 +410,54 @@ export function createServer(
     return c.json(result);
   });
 
-  // 8. In-App Terminal Command Execution
+  // 8. In-App Terminal Command Execution with Security Sandbox
+  const DANGEROUS_COMMAND_PATTERNS = [
+    /format\s+[a-zA-Z]:/i,
+    /format-volume/i,
+    /diskpart/i,
+    /bcdedit/i,
+    /reg\s+delete\s+(hklm|hkey_local_machine)/i,
+    /rmdir\s+.*\/s.*\/q.*[cC]:\\/i,
+    /del\s+.*\/f.*\/s.*\/q.*[cC]:\\/i,
+    /remove-item.*-(recurse|r).*(c:\\|\$env:systemroot|system32)/i,
+    /stop-process.*-(name|id).*(csrss|lsass|smss|svchost)/i,
+    /taskkill.*\/im\s+(csrss|lsass|smss)\.exe/i,
+    /:[(][{]\s*:\|:&\s*[}][)];:/,
+  ];
+
   app.post('/api/terminal/run', async (c) => {
-    const { command, cwd } = await c.req.json();
+    const { command, cwd, bypassSafetyCheck, shell } = await c.req.json();
     if (!command || typeof command !== 'string') {
       return c.json({ error: 'Command is required' }, 400);
     }
 
-    const workingDir = cwd || process.cwd();
+    if (command.length > 4000) {
+      return c.json({ error: 'Command exceeds 4000 characters limit' }, 400);
+    }
+
+    // Security Sandbox check
+    if (!bypassSafetyCheck) {
+      const isDangerous = DANGEROUS_COMMAND_PATTERNS.some((pattern) => pattern.test(command));
+      if (isDangerous) {
+        return c.json(
+          {
+            error: 'Security Sandbox: Destructive system operation blocked for safety.',
+            blocked: true,
+            suggestion: 'To execute potentially destructive system commands, explicit bypass authorization is required.',
+          },
+          403
+        );
+      }
+    }
+
+    const workingDir = cwd && fs.existsSync(cwd) ? cwd : process.cwd();
     const start = Date.now();
+    const chosenShell = shell === 'cmd' ? 'cmd.exe' : shell === 'bash' ? 'bash.exe' : 'powershell.exe';
 
     try {
       const { stdout, stderr } = await execAsync(command, {
         cwd: workingDir,
-        shell: 'powershell.exe',
+        shell: chosenShell,
         timeout: 30000,
         maxBuffer: 1024 * 1024 * 4,
       });
@@ -314,15 +493,42 @@ export function createServer(
   // 10. Native OS Folder Picker & Common Paths
   app.post('/api/dialog/pick-folder', async (c) => {
     try {
-      const psScript = `[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Select Project Folder'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }`;
-      const { stdout } = await execAsync(`powershell -Sta -NoProfile -Command "${psScript}"`, {
-        timeout: 120000,
-      });
-      const selected = stdout.trim();
-      if (selected) {
-        return c.json({ path: selected, name: path.basename(selected) });
+      if (process.platform === 'win32') {
+        const psScript = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+$form = New-Object System.Windows.Forms.Form
+$form.TopMost = $true
+$form.Opacity = 0
+$form.Show()
+$form.Activate()
+$dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+$dlg.Description = 'Select Project Folder'
+$dlg.ShowNewFolderButton = $true
+if ($dlg.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
+    Write-Output $dlg.SelectedPath
+}
+$form.Dispose()
+$dlg.Dispose()
+`.trim();
+        const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+        return new Promise<Response>((resolve) => {
+          execFile('powershell.exe', ['-NoProfile', '-Sta', '-EncodedCommand', encoded], { timeout: 60000 }, (err, stdout) => {
+            if (err) {
+              resolve(c.json({ path: null, error: err.message }));
+              return;
+            }
+            const selected = stdout.trim();
+            if (selected) {
+              resolve(c.json({ path: selected, name: path.basename(selected) }));
+            } else {
+              resolve(c.json({ path: null }));
+            }
+          });
+        });
+      } else {
+        return c.json({ path: null });
       }
-      return c.json({ path: null });
     } catch (err: any) {
       return c.json({ error: err.message, path: null }, 500);
     }
@@ -339,7 +545,7 @@ export function createServer(
     });
   });
 
-  // 11. Open in Windows Explorer
+  // 11. Open in Windows Explorer (Instant detach without hanging)
   app.post('/api/dialog/open-folder', async (c) => {
     try {
       const body = await c.req.json();
@@ -347,7 +553,9 @@ export function createServer(
       if (!fs.existsSync(folderPath)) {
         fs.mkdirSync(folderPath, { recursive: true });
       }
-      await execAsync(`explorer "${folderPath}"`);
+      if (process.platform === 'win32') {
+        spawn('explorer.exe', [folderPath], { detached: true, stdio: 'ignore' }).unref();
+      }
       return c.json({ success: true, opened: folderPath });
     } catch (err: any) {
       return c.json({ success: false, error: err.message }, 500);
