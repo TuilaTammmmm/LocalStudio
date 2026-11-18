@@ -5,6 +5,7 @@ import type { DatabaseService } from './db.js';
 import type { LlamaProcessManager } from './llama-process.js';
 import { ProviderClient, type StreamChunk } from './provider-client.js';
 import type { ProviderConfig, ChatMessage } from './types.js';
+import { getSmartModelPreset } from './model-presets.js';
 
 export class MultiProviderRouter {
   private db: DatabaseService;
@@ -205,6 +206,18 @@ export class MultiProviderRouter {
       const isHealthy = await this.llamaManager.isHealthy();
       const currentStatus = this.llamaManager.getStatus();
       const modelPath = this.findModelPath(provider.selectedModel);
+      const modelFilename = modelPath ? path.basename(modelPath) : (provider.selectedModel || '');
+
+      // Resolve effective model config: custom user config in DB -> smart preset fallback
+      const savedConfig = this.db.getModelConfig(modelFilename);
+      const smartPreset = getSmartModelPreset(modelFilename);
+
+      const effectiveNgl = savedConfig?.gpuLayers ?? provider.gpuLayers ?? smartPreset.recommendedNgl;
+      const effectiveCtxSize = savedConfig?.contextSize ?? provider.contextSize ?? smartPreset.recommendedCtxSize;
+      const effectiveTemp = options.temperature ?? savedConfig?.temperature ?? smartPreset.temperature;
+      const effectiveTopP = options.topP ?? savedConfig?.topP ?? smartPreset.topP;
+      const effectiveRepeatPenalty = options.repeatPenalty ?? savedConfig?.repeatPenalty ?? smartPreset.repeatPenalty;
+
       const isDifferentModel = !!(
         currentStatus.isRunning &&
         currentStatus.modelPath &&
@@ -226,8 +239,8 @@ export class MultiProviderRouter {
               modelPath,
               port: 8080,
               host: '127.0.0.1',
-              ngl: provider.gpuLayers ?? 21,
-              ctxSize: provider.contextSize ?? 4096,
+              ngl: effectiveNgl,
+              ctxSize: effectiveCtxSize,
               threads: provider.cpuThreads ?? 4,
               flashAttention: provider.flashAttention ?? true,
             });
@@ -253,9 +266,51 @@ export class MultiProviderRouter {
           );
         }
       }
+
+      // 5. Stream response with effective model parameters
+      let accumulatedContent = '';
+      let accumulatedThinking = '';
+
+      try {
+        for await (const chunk of ProviderClient.streamChat(provider, apiMessages, {
+          systemPrompt: options.systemPrompt,
+          temperature: effectiveTemp,
+          topP: effectiveTopP,
+          maxTokens: options.maxTokens,
+          repeatPenalty: effectiveRepeatPenalty,
+          model: provider.selectedModel,
+        })) {
+          if (chunk.content) accumulatedContent += chunk.content;
+          if (chunk.thinking) accumulatedThinking += chunk.thinking;
+          yield chunk;
+        }
+      } catch (err: any) {
+        let friendlyError = err.message;
+        if (err.message.includes('fetch failed') || err.message.includes('ECONNREFUSED')) {
+          friendlyError = `Không thể kết nối tới mô hình AI Local (Port 8080). Tiến trình llama-server chưa chạy trên cổng 8080.
+💡 Gợi ý giải pháp:
+1. Chuyển Provider: Nhấp vào nút Provider bên dưới khung chat (đang là "Local llama.cpp") và chuyển sang "FreeLLM API" (hoặc Ollama / LM Studio) để trò chuyện ngay.
+2. Hoặc khởi động llama-server: Chạy lệnh \`llama-server -m <đường_dẫn_tệp_gguf> --port 8080\` nếu bạn muốn suy luận offline trực tiếp qua GPU máy tính.`;
+        }
+        accumulatedContent += `\n⚠️ [Lỗi]: ${friendlyError}`;
+        yield { content: `\n⚠️ [Lỗi]: ${friendlyError}`, done: true };
+      }
+
+      // Save assistant message to database
+      const assistantMsg: ChatMessage = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        sessionId,
+        role: 'assistant',
+        content: accumulatedContent,
+        thinking: accumulatedThinking || undefined,
+        modelUsed: provider.selectedModel,
+        createdAt: Date.now(),
+      };
+      this.db.addMessage(assistantMsg);
+      return;
     }
 
-    // 5. Stream response
+    // 5. Stream response for Non-Local Providers
     let accumulatedContent = '';
     let accumulatedThinking = '';
 
@@ -274,14 +329,7 @@ export class MultiProviderRouter {
     } catch (err: any) {
       let friendlyError = err.message;
       if (err.message.includes('fetch failed') || err.message.includes('ECONNREFUSED')) {
-        if (provider.id === 'local-llama' || provider.type === 'llama-server') {
-          friendlyError = `Không thể kết nối tới mô hình AI Local (Port 8080). Tiến trình llama-server chưa chạy trên cổng 8080.
-💡 Gợi ý giải pháp:
-1. Chuyển Provider: Nhấp vào nút Provider bên dưới khung chat (đang là "Local llama.cpp") và chuyển sang "FreeLLM API" (hoặc Ollama / LM Studio) để trò chuyện ngay.
-2. Hoặc khởi động llama-server: Chạy lệnh \`llama-server -m <đường_dẫn_tệp_gguf> --port 8080\` nếu bạn muốn suy luận offline trực tiếp qua GPU máy tính.`;
-        } else {
-          friendlyError = `Không thể kết nối tới provider "${provider.name}". Vui lòng kiểm tra lại URL hoặc API Key trong Cài đặt.`;
-        }
+        friendlyError = `Không thể kết nối tới provider "${provider.name}". Vui lòng kiểm tra lại URL hoặc API Key trong Cài đặt.`;
       }
       accumulatedContent += `\n⚠️ [Lỗi]: ${friendlyError}`;
       yield { content: `\n⚠️ [Lỗi]: ${friendlyError}`, done: true };

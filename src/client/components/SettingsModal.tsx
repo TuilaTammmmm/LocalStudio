@@ -45,6 +45,7 @@ import {
   Languages,
   ChevronDown,
   Plus,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -99,7 +100,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [syncStatus, setSyncStatus] = useState<{ loading: boolean; text?: string }>({ loading: false });
   const [updateState, setUpdateState] = useState<{
     loading: boolean;
-    result?: { currentVersion: string; latestVersion: string; hasUpdate: boolean; releaseNotes?: string };
+    result?: { currentVersion: string; latestVersion: string; hasUpdate: boolean; releaseNotes?: string; releaseUrl?: string };
   }>({ loading: false });
 
   // Sampling & Generation Parameters (LM Studio style)
@@ -139,6 +140,103 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [deleteConfirmModel, setDeleteConfirmModel] = useState<EnrichedModelItem | null>(null);
   const [deleteConfirmProvider, setDeleteConfirmProvider] = useState<ProviderConfig | null>(null);
   const [localProviders, setLocalProviders] = useState<ProviderConfig[]>(providers);
+
+  // Per-Model Presets Configuration Modal
+  const [configModel, setConfigModel] = useState<EnrichedModelItem | null>(null);
+  const [modelConfigForm, setModelConfigForm] = useState<{
+    temperature: number;
+    topP: number;
+    repeatPenalty: number;
+    gpuLayers: number;
+    contextSize: number;
+    systemPromptMode: 'standard' | 'merge_to_user' | 'none';
+    description?: string;
+  }>({
+    temperature: 0.3,
+    topP: 0.85,
+    repeatPenalty: 1.05,
+    gpuLayers: 20,
+    contextSize: 4096,
+    systemPromptMode: 'standard',
+  });
+  const [modelConfigLoading, setModelConfigLoading] = useState(false);
+  const [modelConfigSaved, setModelConfigSaved] = useState(false);
+
+  const handleOpenModelConfig = async (model: EnrichedModelItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setConfigModel(model);
+    setModelConfigLoading(true);
+    setModelConfigSaved(false);
+
+    try {
+      const res = await fetch(getApiUrl(`/api/models/config/${encodeURIComponent(model.filename)}`));
+      if (res.ok) {
+        const data = await res.json();
+        setModelConfigForm({
+          temperature: data.config.temperature ?? 0.3,
+          topP: data.config.topP ?? 0.85,
+          repeatPenalty: data.config.repeatPenalty ?? 1.05,
+          gpuLayers: data.config.gpuLayers ?? 20,
+          contextSize: data.config.contextSize ?? 4096,
+          systemPromptMode: data.config.systemPromptMode ?? 'standard',
+          description: data.defaults?.description,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load model config:', err);
+    } finally {
+      setModelConfigLoading(false);
+    }
+  };
+
+  const handleSaveModelConfig = async () => {
+    if (!configModel) return;
+    setModelConfigLoading(true);
+    try {
+      await fetch(getApiUrl(`/api/models/config/${encodeURIComponent(configModel.filename)}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(modelConfigForm),
+      });
+      setModelConfigSaved(true);
+      setTimeout(() => {
+        setModelConfigSaved(false);
+        setConfigModel(null);
+      }, 1200);
+    } catch (err) {
+      console.error('Failed to save model config:', err);
+    } finally {
+      setModelConfigLoading(false);
+    }
+  };
+
+  const handleResetModelConfig = async () => {
+    if (!configModel) return;
+    setModelConfigLoading(true);
+    try {
+      await fetch(getApiUrl(`/api/models/config/${encodeURIComponent(configModel.filename)}`), {
+        method: 'DELETE',
+      });
+      // Re-fetch smart defaults
+      const res = await fetch(getApiUrl(`/api/models/config/${encodeURIComponent(configModel.filename)}`));
+      if (res.ok) {
+        const data = await res.json();
+        setModelConfigForm({
+          temperature: data.defaults.temperature,
+          topP: data.defaults.topP,
+          repeatPenalty: data.defaults.repeatPenalty,
+          gpuLayers: data.defaults.recommendedNgl,
+          contextSize: data.defaults.recommendedCtxSize,
+          systemPromptMode: data.defaults.systemPromptMode,
+          description: data.defaults.description,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to reset model config:', err);
+    } finally {
+      setModelConfigLoading(false);
+    }
+  };
 
   useEffect(() => {
     setLocalProviders(providers);
@@ -868,6 +966,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   <CheckCircle2 className="w-3 h-3 mr-0.5 inline" />
                                   <span>{currentLang === 'vi' ? 'Đã tải trên máy' : 'Downloaded'}</span>
                                 </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOpenModelConfig(m, e)}
+                                  className="p-1 rounded-lg hover:bg-sky-500/20 text-gray-400 hover:text-sky-400 transition-colors"
+                                  title={currentLang === 'vi' ? 'Cấu hình riêng cho Model' : 'Per-Model Configuration'}
+                                >
+                                  <SettingsIcon className="w-3.5 h-3.5" />
+                                </button>
                                 <button
                                   type="button"
                                   onClick={(e) => handleDeleteModel(m, e)}
@@ -2349,21 +2455,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     LocalAI là nền tảng máy trạm AI cục bộ độc lập, tích hợp bộ tăng tốc phần cứng thông minh cho GPU 4GB VRAM (GTX 1650), tự động định tuyến mô hình đa nhiệm (Coder, Reasoner, Vision, Cloud) và hệ thống Local Skills.
                   </p>
 
-                  <div className="pt-2 border-t border-[#30363d] flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <span className="text-xs font-bold text-gray-200">Kiểm tra bản cập nhật mới</span>
-                      <p className="text-[11px] text-gray-400">
-                        {updateState.result?.releaseNotes || 'Kiểm tra phiên bản mới từ GitHub Releases'}
-                      </p>
+                  <div className="pt-2 border-t border-[#30363d] space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="text-xs font-bold text-gray-200">Kiểm tra bản cập nhật mới</span>
+                        <p className="text-[11px] text-gray-400">
+                          {updateState.result
+                            ? updateState.result.hasUpdate
+                              ? `Đã có bản cập nhật mới: v${updateState.result.latestVersion} (Hiện tại: v${updateState.result.currentVersion})`
+                              : `Bạn đang ở phiên bản mới nhất (v${updateState.result.currentVersion})`
+                            : 'Kiểm tra phiên bản mới từ GitHub Releases'}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {updateState.result?.hasUpdate && updateState.result.releaseUrl && (
+                          <a
+                            href={updateState.result.releaseUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-md shadow-emerald-500/20 flex items-center space-x-1.5"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Tải bản mới ({updateState.result.latestVersion})</span>
+                          </a>
+                        )}
+                        <button
+                          onClick={handleCheckUpdate}
+                          disabled={updateState.loading}
+                          className="px-3.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-all disabled:opacity-50 flex items-center space-x-1.5"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${updateState.loading ? 'animate-spin' : ''}`} />
+                          <span>{updateState.loading ? 'Đang kiểm tra...' : 'Kiểm tra cập nhật'}</span>
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={handleCheckUpdate}
-                      disabled={updateState.loading}
-                      className="px-3.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-all disabled:opacity-50 flex items-center space-x-1.5"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${updateState.loading ? 'animate-spin' : ''}`} />
-                      <span>{updateState.loading ? 'Đang kiểm tra...' : 'Check for Updates'}</span>
-                    </button>
                   </div>
                 </div>
               </div>
@@ -2432,6 +2557,187 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{currentLang === 'vi' ? 'Xóa vĩnh viễn' : 'Delete Permanently'}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cấu hình riêng cho từng Model (Per-Model Settings Modal) */}
+      {configModel && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !modelConfigLoading) setConfigModel(null);
+          }}
+        >
+          <div className="w-full max-w-lg bg-[#161b22] border border-sky-500/40 rounded-2xl shadow-2xl p-6 space-y-5 animate-scale-up">
+            <div className="flex items-center justify-between border-b border-[#30363d] pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center">
+                  <Sliders className="w-4 h-4 text-sky-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white truncate max-w-xs">{configModel.name}</h3>
+                  <p className="text-[10px] font-mono text-gray-400 truncate">{configModel.filename}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfigModel(null)}
+                className="p-1 rounded-lg hover:bg-[#30363d] text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {modelConfigForm.description && (
+              <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-300 text-[11px] leading-relaxed flex items-start space-x-2">
+                <Sparkles className="w-4 h-4 shrink-0 text-sky-400 mt-0.5" />
+                <span>{modelConfigForm.description}</span>
+              </div>
+            )}
+
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+              {/* Temperature */}
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1">
+                  <span className="text-gray-300 font-semibold">Nhiệt độ (Temperature):</span>
+                  <span className="font-mono text-sky-400 font-bold">{modelConfigForm.temperature.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1.5"
+                  step="0.05"
+                  value={modelConfigForm.temperature}
+                  onChange={(e) => setModelConfigForm((prev) => ({ ...prev, temperature: parseFloat(e.target.value) }))}
+                  className="w-full h-1.5 bg-[#30363d] rounded-lg appearance-none cursor-pointer accent-sky-500"
+                />
+                <span className="text-[10px] text-gray-500">Thấp: Chính xác, code logic. Cao: Sáng tạo, đàm thoại.</span>
+              </div>
+
+              {/* Top P */}
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1">
+                  <span className="text-gray-300 font-semibold">Độ chọn lọc (Top P):</span>
+                  <span className="font-mono text-sky-400 font-bold">{modelConfigForm.topP.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.05"
+                  value={modelConfigForm.topP}
+                  onChange={(e) => setModelConfigForm((prev) => ({ ...prev, topP: parseFloat(e.target.value) }))}
+                  className="w-full h-1.5 bg-[#30363d] rounded-lg appearance-none cursor-pointer accent-sky-500"
+                />
+              </div>
+
+              {/* Repeat Penalty */}
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1">
+                  <span className="text-gray-300 font-semibold">Phạt lặp từ (Repeat Penalty):</span>
+                  <span className="font-mono text-sky-400 font-bold">{modelConfigForm.repeatPenalty.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1.0"
+                  max="1.3"
+                  step="0.02"
+                  value={modelConfigForm.repeatPenalty}
+                  onChange={(e) => setModelConfigForm((prev) => ({ ...prev, repeatPenalty: parseFloat(e.target.value) }))}
+                  className="w-full h-1.5 bg-[#30363d] rounded-lg appearance-none cursor-pointer accent-sky-500"
+                />
+                <span className="text-[10px] text-gray-500">Khuyên dùng 1.0 (tắt) cho Gemma 2 và DeepSeek-R1 để tránh loạn ngữ.</span>
+              </div>
+
+              {/* GPU Layers */}
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1">
+                  <span className="text-gray-300 font-semibold">Số lớp nạp vào GPU (GPU Layers):</span>
+                  <span className="font-mono text-emerald-400 font-bold">{modelConfigForm.gpuLayers} layers</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="99"
+                  step="1"
+                  value={modelConfigForm.gpuLayers}
+                  onChange={(e) => setModelConfigForm((prev) => ({ ...prev, gpuLayers: parseInt(e.target.value, 10) }))}
+                  className="w-full h-1.5 bg-[#30363d] rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                />
+                <span className="text-[10px] text-gray-500">GTX 1650 4GB: 18-20 layers (model 8B-9B), 99 layers (model 1.5B-3B).</span>
+              </div>
+
+              {/* Context Size */}
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1">
+                  <span className="text-gray-300 font-semibold">Độ dài ngữ cảnh (Context Size):</span>
+                  <span className="font-mono text-amber-400 font-bold">{modelConfigForm.contextSize} tokens</span>
+                </div>
+                <select
+                  value={modelConfigForm.contextSize}
+                  onChange={(e) => setModelConfigForm((prev) => ({ ...prev, contextSize: parseInt(e.target.value, 10) }))}
+                  className="w-full px-3 py-1.5 rounded-lg bg-[#0d1117] border border-[#30363d] text-gray-200 text-xs font-mono focus:outline-none focus:border-amber-500"
+                >
+                  <option value={2048}>2048 (Tiết kiệm RAM nhất cho 8B-9B)</option>
+                  <option value={4096}>4096 (Chuẩn cho 1.5B-7B)</option>
+                  <option value={8192}>8192 (Ngữ cảnh dài)</option>
+                </select>
+              </div>
+
+              {/* System Prompt Mode */}
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1">
+                  <span className="text-gray-300 font-semibold">Xử lý vai trò System Prompt:</span>
+                </div>
+                <select
+                  value={modelConfigForm.systemPromptMode}
+                  onChange={(e) => setModelConfigForm((prev) => ({ ...prev, systemPromptMode: e.target.value as any }))}
+                  className="w-full px-3 py-1.5 rounded-lg bg-[#0d1117] border border-[#30363d] text-gray-200 text-xs focus:outline-none focus:border-sky-500"
+                >
+                  <option value="standard">Tiêu chuẩn (Gửi role: system)</option>
+                  <option value="merge_to_user">Tự động gộp vào tin nhắn User (Khuyên dùng cho Gemma 2)</option>
+                  <option value="none">Bỏ qua System Prompt</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-[#30363d] pt-3">
+              <button
+                type="button"
+                onClick={handleResetModelConfig}
+                disabled={modelConfigLoading}
+                className="px-3 py-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-medium transition-colors"
+                title="Khôi phục lại thông số chuẩn theo dòng họ mô hình"
+              >
+                Khôi phục chuẩn (Auto-Preset)
+              </button>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setConfigModel(null)}
+                  className="px-3 py-1.5 rounded-xl bg-[#21262d] hover:bg-[#30363d] text-gray-400 hover:text-white text-xs transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveModelConfig}
+                  disabled={modelConfigLoading}
+                  className="px-4 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs shadow-md shadow-sky-500/20 transition-all flex items-center space-x-1.5"
+                >
+                  {modelConfigSaved ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-slate-950" />
+                      <span>Đã lưu!</span>
+                    </>
+                  ) : (
+                    <span>Lưu cấu hình</span>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

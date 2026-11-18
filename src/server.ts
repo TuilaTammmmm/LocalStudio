@@ -12,6 +12,7 @@ import { SkillsRunner } from './skills-runner.js';
 import { AutoModelRouter, DEFAULT_AUTO_ROUTE_CONFIG } from './auto-router.js';
 import { ModelHubService, CURATED_MODELS, type ModelHubItem, parseModelMetadata } from './model-hub.js';
 import { ModelDownloaderService } from './model-downloader.js';
+import { getSmartModelPreset } from './model-presets.js';
 import { AppUpdater } from './updater.js';
 import { exec, spawn, execFile } from 'node:child_process';
 import util from 'node:util';
@@ -140,6 +141,41 @@ export function createServer(
     const id = c.req.param('id');
     const deleted = db.deleteCustomHubModel(id);
     return c.json({ success: deleted });
+  });
+
+  // 1.1.3 Per-Model Preset Configurations
+  app.get('/api/models/config/:filename', (c) => {
+    const filename = decodeURIComponent(c.req.param('filename'));
+    const savedConfig = db.getModelConfig(filename);
+    const smartDefaults = getSmartModelPreset(filename);
+
+    return c.json({
+      filename,
+      isCustomized: !!savedConfig,
+      config: {
+        temperature: savedConfig?.temperature ?? smartDefaults.temperature,
+        topP: savedConfig?.topP ?? smartDefaults.topP,
+        repeatPenalty: savedConfig?.repeatPenalty ?? smartDefaults.repeatPenalty,
+        gpuLayers: savedConfig?.gpuLayers ?? smartDefaults.recommendedNgl,
+        contextSize: savedConfig?.contextSize ?? smartDefaults.recommendedCtxSize,
+        systemPromptMode: savedConfig?.systemPromptMode ?? smartDefaults.systemPromptMode,
+        customInstructions: savedConfig?.customInstructions ?? '',
+      },
+      defaults: smartDefaults,
+    });
+  });
+
+  app.post('/api/models/config/:filename', async (c) => {
+    const filename = decodeURIComponent(c.req.param('filename'));
+    const body = await c.req.json();
+    db.saveModelConfig(filename, body);
+    return c.json({ success: true, filename, config: db.getModelConfig(filename) });
+  });
+
+  app.delete('/api/models/config/:filename', (c) => {
+    const filename = decodeURIComponent(c.req.param('filename'));
+    db.deleteModelConfig(filename);
+    return c.json({ success: true, filename });
   });
 
   // 1.2 Model Downloader Endpoints & Real-time Stream
@@ -646,8 +682,8 @@ export function createServer(
   });
 
   app.get('/api/app/check-update', async (c) => {
-    const owner = c.req.query('owner') || 'tam-code';
-    const repo = c.req.query('repo') || 'LocalAI';
+    const owner = c.req.query('owner') || 'TuilaTammmmm';
+    const repo = c.req.query('repo') || 'LocalWorkspace';
     const updateInfo = await AppUpdater.checkForUpdates(owner, repo);
     return c.json(updateInfo);
   });

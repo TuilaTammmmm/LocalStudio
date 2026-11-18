@@ -20,15 +20,24 @@ export interface UpdateCheckResult {
 
 export class AppUpdater {
   public static getAppInfo(): AppVersionInfo {
-    let version = '0.1.0';
+    let version = '1.0.2';
     let name = 'local-ai-studio';
 
     try {
-      const pkgPath = path.resolve(process.cwd(), 'package.json');
-      if (fs.existsSync(pkgPath)) {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        version = pkg.version || version;
-        name = pkg.name || name;
+      const candidates = [
+        path.resolve(process.cwd(), 'package.json'),
+        path.resolve(__dirname, '../package.json'),
+        path.resolve((process as any).resourcesPath || '', 'app.asar/package.json'),
+      ];
+      for (const p of candidates) {
+        if (p && fs.existsSync(p)) {
+          const pkg = JSON.parse(fs.readFileSync(p, 'utf-8'));
+          if (pkg.version) {
+            version = pkg.version;
+            name = pkg.name || name;
+            break;
+          }
+        }
       }
     } catch {}
 
@@ -41,7 +50,7 @@ export class AppUpdater {
     };
   }
 
-  public static async checkForUpdates(repoOwner = 'tam-code', repoName = 'LocalAI'): Promise<UpdateCheckResult> {
+  public static async checkForUpdates(repoOwner = 'TuilaTammmmm', repoName = 'LocalWorkspace'): Promise<UpdateCheckResult> {
     const current = this.getAppInfo().version;
 
     try {

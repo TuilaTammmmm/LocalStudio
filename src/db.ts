@@ -410,4 +410,31 @@ export class DatabaseService {
     if (state.activeProviderId !== undefined) this.db.activeProviderId = state.activeProviderId;
     this.persist();
   }
+
+  // Model-specific preset configurations
+  public getModelConfig(filename: string): import('./types.js').ModelPresetConfig | undefined {
+    return this.db.settings?.modelConfigs?.[filename];
+  }
+
+  public saveModelConfig(filename: string, config: import('./types.js').ModelPresetConfig): void {
+    if (!this.db.settings) {
+      this.db.settings = {};
+    }
+    if (!this.db.settings.modelConfigs) {
+      this.db.settings.modelConfigs = {};
+    }
+    this.db.settings.modelConfigs[filename] = {
+      ...this.db.settings.modelConfigs[filename],
+      ...config,
+      updatedAt: Date.now(),
+    };
+    this.persist();
+  }
+
+  public deleteModelConfig(filename: string): void {
+    if (this.db.settings?.modelConfigs?.[filename]) {
+      delete this.db.settings.modelConfigs[filename];
+      this.persist();
+    }
+  }
 }

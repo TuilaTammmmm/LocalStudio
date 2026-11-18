@@ -65,12 +65,45 @@ export class ProviderClient {
       headers['Authorization'] = `Bearer ${provider.apiKey}`;
     }
 
-    const formattedMessages: Array<{ role: string; content: string }> = [];
-    if (options.systemPrompt) {
-      formattedMessages.push({ role: 'system', content: options.systemPrompt });
+    const modelName = (options.model || provider.selectedModel || '').toLowerCase();
+    const isGemma = modelName.includes('gemma');
+
+    // Format & normalize messages to satisfy strict model Chat Templates (e.g. Gemma 2, Qwen/R1):
+    // 1. Gemma 2 does not support 'system' role. Prepend system prompt to the first user message.
+    // 2. Strict alternation: merge consecutive messages from the same role to prevent Jinja 400 errors.
+    const rawMessages: Array<{ role: string; content: string }> = [];
+    if (options.systemPrompt && options.systemPrompt.trim()) {
+      if (isGemma) {
+        // Gemma 2: prepend system prompt into the first user message instead of a separate 'system' role
+        rawMessages.push({ role: 'user', content: `[Instructions]: ${options.systemPrompt.trim()}` });
+      } else {
+        rawMessages.push({ role: 'system', content: options.systemPrompt.trim() });
+      }
     }
+
     for (const msg of messages) {
-      formattedMessages.push({ role: msg.role, content: msg.content });
+      if (!msg.content || !msg.content.trim()) continue;
+      // If Gemma and a 'system' role was sent in messages, convert it to user prefix
+      if (isGemma && msg.role === 'system') {
+        rawMessages.push({ role: 'user', content: `[Instructions]: ${msg.content.trim()}` });
+      } else {
+        rawMessages.push({ role: msg.role, content: msg.content.trim() });
+      }
+    }
+
+    // Merge consecutive same-role messages
+    const formattedMessages: Array<{ role: string; content: string }> = [];
+    for (const m of rawMessages) {
+      if (formattedMessages.length > 0 && formattedMessages[formattedMessages.length - 1].role === m.role) {
+        formattedMessages[formattedMessages.length - 1].content += `\n\n${m.content}`;
+      } else {
+        formattedMessages.push({ ...m });
+      }
+    }
+
+    // Ensure first message is 'user' for models that don't accept starting with 'assistant'
+    if (formattedMessages.length > 0 && formattedMessages[0].role === 'assistant') {
+      formattedMessages.unshift({ role: 'user', content: 'Hello' });
     }
 
     const isLocal =
@@ -78,24 +111,26 @@ export class ProviderClient {
       provider.id === 'local-llama' ||
       /127\.0\.0\.1|localhost/.test(provider.baseUrl);
 
+    // Optimized sampling parameters:
+    // Lower temperature (0.3) and top_p (0.85) to eliminate hallucinations and off-topic outputs.
+    const defaultTemp = isLocal ? 0.3 : 0.6;
+    const defaultTopP = isLocal ? 0.85 : 0.9;
+
     const payload: Record<string, unknown> = {
       model: options.model || provider.selectedModel,
       messages: formattedMessages,
       stream: true,
-      temperature: options.temperature ?? 0.6,
-      top_p: options.topP ?? 0.9,
+      temperature: options.temperature ?? defaultTemp,
+      top_p: options.topP ?? defaultTopP,
       max_tokens: options.maxTokens || 4096,
     };
 
     if (isLocal) {
-      // llama.cpp native anti-repetition samplers
-      payload.repeat_penalty = Math.min(options.repeatPenalty ?? 1.1, 1.2);
-      payload.repeat_last_n = 256;
+      // Gentle repetition control: avoid aggressive penalties that destroy reasoning or trigger degradation in Gemma 2
+      payload.repeat_penalty = Math.min(options.repeatPenalty ?? 1.05, 1.1);
+      payload.repeat_last_n = 64;
       payload.min_p = 0.05;
-      payload.dry_multiplier = 0.8; // DRY: chặn lặp cụm từ/câu dài
-      payload.dry_base = 1.75;
-      payload.dry_allowed_length = 2;
-      payload.dry_penalty_last_n = 0; // 0 = an toàn, tương thích với schema 0 <= val <= 2147483647
+      // Do NOT set dry_multiplier by default as it severely penalizes Gemma 2 & DeepSeek-R1 logic chains
     } else {
       payload.frequency_penalty = 0.3;
     }

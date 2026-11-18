@@ -23,3 +23,6 @@
 - ChatInput UI: Responsive non-wrapping buttons (`whitespace-nowrap shrink-0`) preventing layout overlapping.
 - Global Hardware Config: Removed fragile per-model sliders from Model Hub; centralized permanently saved GPU/CPU flags (`-ngl`, `-c`, `-t`, `-fa`) in dedicated "Cấu hình GPU & Phần cứng" tab.
 - v1.0.1 Upgrade: Upgraded engine to dynamic hardware auto-scaling (4GB up to 24GB+ VRAM), physical CPU core threading (-t), llama.cpp --context-shift, -fa on, stream <think> parser for DeepSeek-R1, and safe dry_penalty_last_n = 0.
+- v1.0.2 Model Stability Fix: Fixed Gemma 2 / DeepSeek Jinja 400 & degradation by enforcing message alternation, prepending system prompt to user for Gemma, lowering local default sampling to temp 0.3 / top-p 0.85, removing destructive dry_multiplier, and extending llama-server readiness timeout to 90s for large models.
+- v1.0.3 Smart Presets & Per-Model Config: Added auto-detection engine (Gemma, DeepSeek-R1, Qwen Coder, Llama), database persistence for modelConfigs, per-model settings modal UI with auto-presets button, and instant router parameter binding upon chat.
+- v1.0.2 Version Bump & Updater Fix: Upgraded version to 1.0.2 in package.json and AppUpdater, linked official GitHub repo TuilaTammmmm/LocalWorkspace, resilient package.json resolution inside packaged asar, and added direct download button in SettingsModal.

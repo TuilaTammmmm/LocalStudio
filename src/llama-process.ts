@@ -86,8 +86,8 @@ export class LlamaProcessManager {
         this.childProcess = null;
       });
 
-      // Poll /health endpoint for up to 30 seconds
-      return await this.waitForReady(config.host, config.port, 30000);
+      // Poll /health endpoint for up to 90 seconds (allows heavy 7B-9B models to fully allocate RAM/VRAM)
+      return await this.waitForReady(config.host, config.port, 90000);
     } catch (err: any) {
       this.appendLog(`[Manager] Failed to launch server: ${err.message}`);
       return false;

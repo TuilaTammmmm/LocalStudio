@@ -90,6 +90,18 @@ export interface LlamaServerConfig {
   kvCacheQuant?: 'f16' | 'q8_0' | 'q4_0';
 }
 
+export interface ModelPresetConfig {
+  temperature?: number;
+  topP?: number;
+  repeatPenalty?: number;
+  gpuLayers?: number;
+  contextSize?: number;
+  systemPromptMode?: 'standard' | 'merge_to_user' | 'none';
+  customInstructions?: string;
+  updatedAt?: number;
+}
+
 export interface AppSettings {
   modelsDir?: string;
+  modelConfigs?: Record<string, ModelPresetConfig>;
 }
