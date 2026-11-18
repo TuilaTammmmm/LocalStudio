@@ -39,7 +39,7 @@ export function getSmartModelPreset(filename: string, fileSizeBytes?: number): S
     topP = 0.95;
     repeatPenalty = 1.0; // Avoid breaking <think> tokens
     systemPromptMode = 'standard';
-    description = 'DeepSeek-R1: Giữ nguyên chuỗi suy luận <think>, hạn chế phạt lặp từ.';
+    description = 'DeepSeek-R1: Suy luận logic chuyên sâu, phản hồi ngắn gọn trọng tâm.';
   } else if (lower.includes('coder') || lower.includes('code') || lower.includes('starcoder')) {
     family = 'coding';
     temp = 0.2;

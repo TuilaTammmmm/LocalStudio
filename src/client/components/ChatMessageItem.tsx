@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { marked } from 'marked';
 import type { ChatMessage } from '../../types.js';
 import {
   User,
@@ -29,7 +30,27 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Helper to render code blocks cleanly
+  // Helper to format LaTeX expressions into clean mathematical notations
+  const formatMathLatex = (text: string): string => {
+    return text
+      // Fractions \frac{a}{b} -> (a / b)
+      .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1 / $2)')
+      // Inline math \( ... \) -> $1
+      .replace(/\\\(([\s\S]*?)\\\)/g, (_match, group) => group.trim())
+      // Display math \[ ... \] -> $1
+      .replace(/\\\[([\s\S]*?)\\\]/g, (_match, group) => `\n${group.trim()}\n`)
+      // Common math symbols
+      .replace(/\\neq/g, '≠')
+      .replace(/\\le/g, '≤')
+      .replace(/\\ge/g, '≥')
+      .replace(/\\times/g, '×')
+      .replace(/\\pm/g, '±')
+      .replace(/\\approx/g, '≈')
+      .replace(/\\cdot/g, '·')
+      .replace(/\\sqrt\{([^{}]+)\}/g, '√($1)');
+  };
+
+  // Helper to render markdown and code blocks cleanly
   const renderFormattedContent = (rawText: string) => {
     const parts = rawText.split(/(```[\s\S]*?```)/g);
 
@@ -48,10 +69,19 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
         );
       }
 
+      // Process Markdown + Math LaTeX
+      const processedText = formatMathLatex(part);
+      const parsedHtml = marked.parse(processedText, {
+        breaks: true,
+        gfm: true,
+      });
+
       return (
-        <span key={index} className="whitespace-pre-wrap leading-relaxed">
-          {part}
-        </span>
+        <div
+          key={index}
+          className="markdown-body select-text"
+          dangerouslySetInnerHTML={{ __html: parsedHtml }}
+        />
       );
     });
   };

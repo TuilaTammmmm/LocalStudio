@@ -448,7 +448,7 @@ export const dictionaries: Record<Language, Translations> = {
     testAndSyncBtn: 'Test & Sync Models',
 
     aboutTitle: 'LocalAI Desktop Studio',
-    aboutSubtitle: 'v0.1.0 • Embedded llama.cpp & CUDA Engine',
+    aboutSubtitle: 'v1.0.3 • Embedded llama.cpp & CUDA Engine',
     productionReady: 'Production Ready',
     aboutDesc: 'LocalAI is an independent, standalone local AI workstation engineered for 4GB VRAM GPUs (GTX 1650), featuring smart multi-model routing (Coder, Reasoner, Vision, Cloud) and local tools.',
     runtimeCore: 'Runtime Core:',
@@ -676,7 +676,7 @@ export const dictionaries: Record<Language, Translations> = {
     testAndSyncBtn: 'Kiểm tra & Đồng bộ mô hình',
 
     aboutTitle: 'LocalAI Desktop Studio',
-    aboutSubtitle: 'v0.1.0 • Tích hợp nhân llama.cpp & Động cơ CUDA',
+    aboutSubtitle: 'v1.0.3 • Tích hợp nhân llama.cpp & Động cơ CUDA',
     productionReady: 'Sẵn sàng vận hành',
     aboutDesc: 'LocalAI là nền tảng máy trạm AI cục bộ độc lập, tích hợp bộ tăng tốc phần cứng cho GPU 4GB VRAM (GTX 1650), tự động định tuyến mô hình đa nhiệm và hệ thống kỹ năng cục bộ.',
     runtimeCore: 'Nhân hệ thống:',

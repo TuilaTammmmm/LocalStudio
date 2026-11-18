@@ -514,8 +514,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setUpdateState({
         loading: false,
         result: {
-          currentVersion: '0.1.0',
-          latestVersion: '0.1.0',
+          currentVersion: '1.0.3',
+          latestVersion: '1.0.3',
           hasUpdate: false,
           releaseNotes: 'Phiên bản hiện tại là mới nhất hoặc chưa cấu hình remote repository.',
         },
@@ -712,7 +712,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div className="p-2 border-t border-[#30363d] text-[11px] text-gray-400 font-mono flex items-center justify-between">
             <span>LocalAI Desktop</span>
-            <span className="text-sky-400">v0.1.0</span>
+            <span className="text-sky-400">v1.0.3</span>
           </div>
         </div>
 
@@ -2443,7 +2443,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <div>
                         <h3 className="font-bold text-sm text-white">LocalAI Desktop Studio</h3>
-                        <p className="text-xs text-gray-400 font-mono">v0.1.0 • Embedded llama.cpp & CUDA Engine</p>
+                        <p className="text-xs text-gray-400 font-mono">v1.0.3 • Embedded llama.cpp & CUDA Engine</p>
                       </div>
                     </div>
                     <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono font-semibold">

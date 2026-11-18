@@ -543,6 +543,9 @@ export function createServer(
     let baseSystemPrompt = '';
     if (!shouldOmitSystemPrompt) {
       baseSystemPrompt = (ws?.systemPrompt || '').trim() || (defaultSystemPrompt || '').trim();
+    } else if (isSmallOrReasoning && !ws?.systemPrompt) {
+      // Concise, direct answering instruction without identity babble or roleplaying
+      baseSystemPrompt = 'Trả lời trực tiếp, chính xác, ngắn gọn và đi thẳng vào trọng tâm câu hỏi. Khi được yêu cầu viết code, hãy ưu tiên đưa code giải quyết vấn đề và giải thích súc tích.';
     }
 
     // Check Skills
