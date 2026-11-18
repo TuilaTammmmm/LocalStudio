@@ -535,9 +535,14 @@ export function createServer(
     const activeProvider = router.getActiveProvider();
     const currentModelName = activeProvider?.selectedModel || '';
 
-    let baseSystemPrompt = (ws?.systemPrompt || '').trim() || (defaultSystemPrompt || '').trim();
-    if (currentModelName) {
-      baseSystemPrompt = `${baseSystemPrompt}\n\n[Môi trường]: Mô hình AI đang chạy hiện tại là: ${currentModelName}`.trim();
+    // If model is a reasoning or small model, or if systemPromptMode is 'none', do NOT inject intrusive system prompts
+    const isSmallOrReasoning = /r1|reason|1\.5b|1b|2b/i.test(currentModelName);
+    const savedModelCfg = currentModelName ? db.getModelConfig(currentModelName) : undefined;
+    const shouldOmitSystemPrompt = savedModelCfg?.systemPromptMode === 'none' || (isSmallOrReasoning && !ws?.systemPrompt);
+
+    let baseSystemPrompt = '';
+    if (!shouldOmitSystemPrompt) {
+      baseSystemPrompt = (ws?.systemPrompt || '').trim() || (defaultSystemPrompt || '').trim();
     }
 
     // Check Skills
