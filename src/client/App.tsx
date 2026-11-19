@@ -50,6 +50,14 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(true);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Agent Workshop Swarm State
+  const [activeAgent, setActiveAgent] = useState<'coordinator' | 'coder' | 'critic' | 'harness' | null>(null);
+  const [agentThoughts, setAgentThoughts] = useState<Record<string, string>>({});
+  const [harnessLogs, setHarnessLogs] = useState<string>('');
+  const [isWorkshopExpanded, setIsWorkshopExpanded] = useState<boolean>(() => {
+    return localStorage.getItem('localai_workshop_expanded') === 'true';
+  });
+
   // 1. Initial Data Load
   useEffect(() => {
     const loadInitialData = async () => {
@@ -167,6 +175,15 @@ export default function App() {
       setFileTree([]);
     }
 
+    const handleFileSaved = () => {
+      if (activeWorkspace) {
+        api.getWorkspaceTree(activeWorkspace.id).then((res) => {
+          setFileTree(res.tree || []);
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener('localai:file-saved', handleFileSaved);
+
     api.getSessions(wsId).then((sessList) => {
       setSessions(sessList);
       if (sessList.length > 0) {
@@ -179,6 +196,10 @@ export default function App() {
         }).catch(() => {});
       }
     }).catch(() => setSessions([]));
+
+    return () => {
+      window.removeEventListener('localai:file-saved', handleFileSaved);
+    };
   }, [activeWorkspace?.id, lang]);
 
   // 3. When active session changes: Load messages
@@ -223,13 +244,30 @@ export default function App() {
       } catch {}
     }
 
+    const isSwarm = promptText.trim().startsWith('/swarm');
+    const cleanPrompt = isSwarm
+      ? promptText.replace(/^\/swarm\s*/i, '').trim() || promptText
+      : promptText;
+
+    if (isSwarm) {
+      setIsWorkshopExpanded(true);
+      localStorage.setItem('localai_workshop_expanded', 'true');
+      setActiveAgent('coordinator');
+      setAgentThoughts({});
+      setHarnessLogs('');
+    } else {
+      setActiveAgent(null);
+      setAgentThoughts({});
+      setHarnessLogs('');
+    }
+
     const assistantPlaceholder: ChatMessage = {
       id: assistantTempId,
       sessionId: activeSession.id,
       role: 'assistant',
       content: '',
       thinking: '',
-      modelUsed: activeModelName,
+      modelUsed: isSwarm ? 'Biệt đội AI (Swarm)' : activeModelName,
       createdAt: Date.now(),
     };
     setMessages((prev) => [...prev, assistantPlaceholder]);
@@ -238,22 +276,27 @@ export default function App() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
+    const streamEndpoint = isSwarm ? '/api/swarm/execute-stream' : '/api/chat/stream';
+
     try {
-      const response = await fetch(getApiUrl('/api/chat/stream'), {
+      const response = await fetch(getApiUrl(streamEndpoint), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: activeSession.id,
-          prompt: promptText,
+          prompt: cleanPrompt,
           contextFiles: pinnedFiles,
           workspaceId: activeWorkspace?.id,
           model: activeModelName,
-          sampling: {
-            temperature: Number(localStorage.getItem('localai_temperature') || '0.6'),
-            topP: Number(localStorage.getItem('localai_topP') || '0.9'),
-            maxTokens: Number(localStorage.getItem('localai_maxTokens') || '4096'),
-            repeatPenalty: Number(localStorage.getItem('localai_repeatPenalty') || '1.1'),
-          },
+          conciseMode: localStorage.getItem('localai_concise_mode') === 'true',
+          sampling: localStorage.getItem('localai_temperature')
+            ? {
+                temperature: Number(localStorage.getItem('localai_temperature')),
+                topP: Number(localStorage.getItem('localai_topP') || '0.9'),
+                maxTokens: Number(localStorage.getItem('localai_maxTokens') || '4096'),
+                repeatPenalty: Number(localStorage.getItem('localai_repeatPenalty') || '1.1'),
+              }
+            : undefined,
           defaultSystemPrompt: localStorage.getItem('localai_defaultSystemPrompt') || '',
         }),
         signal: abortController.signal,
@@ -312,6 +355,34 @@ export default function App() {
 
             try {
               const chunk = JSON.parse(jsonStr);
+
+              // Multi-agent Swarm & Harness streaming events
+              if (chunk.type === 'agent_step') {
+                if (chunk.agent) setActiveAgent(chunk.agent);
+                if (chunk.thought) {
+                  setAgentThoughts((prev) => ({
+                    ...prev,
+                    [chunk.agent]: (prev[chunk.agent] ? prev[chunk.agent] + '\n' : '') + chunk.thought,
+                  }));
+                }
+                if (chunk.chunk) {
+                  pendingContent += chunk.chunk;
+                }
+                if (chunk.status === 'done' && chunk.agent === 'harness') {
+                  setActiveAgent(null);
+                }
+              } else if (chunk.type === 'harness_result') {
+                setHarnessLogs(chunk.logs || (chunk.passed ? 'All tests passed (exit 0)' : `Tests failed (exit ${chunk.exitCode})`));
+                if (chunk.passed) {
+                  setActiveAgent(null);
+                }
+              }
+
+              // Custom Skill Activation notification
+              if (chunk.trigger && chunk.name) {
+                pendingContent += `> 💡 **Kỹ năng đã kích hoạt**: \`${chunk.trigger}\` — *${chunk.name}*\n\n`;
+              }
+
               if (chunk.content) pendingContent += chunk.content;
               if (chunk.thinking) pendingThinking += chunk.thinking;
               if (chunk.message || chunk.error) {
@@ -358,6 +429,7 @@ export default function App() {
       }
     } finally {
       setIsStreaming(false);
+      setActiveAgent(null);
       abortControllerRef.current = null;
     }
   };
@@ -375,6 +447,19 @@ export default function App() {
     setActiveSession(session);
   };
 
+  useEffect(() => {
+    const handleAskAiError = (e: any) => {
+      const { command, error } = e.detail || {};
+      if (command && error) {
+        handleSendMessage(
+          `Lệnh terminal \`${command}\` vừa chạy bị lỗi như sau:\n\`\`\`bash\n${error}\n\`\`\`\nHãy phân tích nguyên nhân và đưa ra giải pháp sửa lỗi cụ thể.`
+        );
+      }
+    };
+    window.addEventListener('localai:ask-ai-error', handleAskAiError);
+    return () => window.removeEventListener('localai:ask-ai-error', handleAskAiError);
+  }, [handleSendMessage]);
+
   const handleDeleteSession = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     await api.deleteSession(id);
@@ -384,6 +469,48 @@ export default function App() {
       setActiveSession(remaining.length > 0 ? remaining[0] : null);
     }
   };
+
+  const lastRegenerateRef = useRef<number>(0);
+  const handleRegenerateMessage = (messageId?: string, prompt?: string) => {
+    const now = Date.now();
+    if (now - lastRegenerateRef.current < 400) return;
+    lastRegenerateRef.current = now;
+
+    let promptText = prompt;
+    if (messageId) {
+      const idx = messages.findIndex((m) => m.id === messageId);
+      if (idx !== -1) {
+        if (messages[idx].role === 'assistant') {
+          for (let i = idx - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') {
+              promptText = messages[i].content;
+              break;
+            }
+          }
+        } else {
+          promptText = messages[idx].content;
+        }
+      }
+    }
+    if (!promptText) {
+      const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+      promptText = lastUser?.content;
+    }
+    if (promptText) {
+      handleSendMessage(promptText);
+    }
+  };
+
+  useEffect(() => {
+    const handleRegenEvent = (e: any) => {
+      const detail = e.detail;
+      const messageId = typeof detail === 'string' ? detail : detail?.messageId;
+      const promptText = typeof detail === 'object' ? detail?.prompt : '';
+      handleRegenerateMessage(messageId, promptText);
+    };
+    window.addEventListener('localai:regenerate-message', handleRegenEvent);
+    return () => window.removeEventListener('localai:regenerate-message', handleRegenEvent);
+  }, [messages, handleSendMessage]);
 
   const handleTogglePinFile = (relPath: string) => {
     setPinnedFiles((prev) => {
@@ -509,11 +636,23 @@ export default function App() {
             }
           }}
           onSendMessage={handleSendMessage}
+          onRegenerateMessage={handleRegenerateMessage}
           isStreaming={isStreaming}
           onStopStreaming={handleStopStreaming}
           onRemovePinnedFile={handleTogglePinFile}
           onAttachFile={(filePath) => {
             setPinnedFiles((prev) => (prev.includes(filePath) ? prev : [...prev, filePath]));
+          }}
+          activeAgent={activeAgent}
+          agentThoughts={agentThoughts}
+          harnessLogs={harnessLogs}
+          isWorkshopExpanded={isWorkshopExpanded}
+          onToggleWorkshopExpand={() => {
+            setIsWorkshopExpanded((prev) => {
+              const next = !prev;
+              localStorage.setItem('localai_workshop_expanded', String(next));
+              return next;
+            });
           }}
         />
 

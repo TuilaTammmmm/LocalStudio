@@ -4,6 +4,7 @@ import type { FileNode } from '../../workspace-fs.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatInput } from './ChatInput.js';
+import { AgentWorkshop, type AgentRole } from './AgentWorkshop.js';
 import {
   Sparkles,
   MessageSquare,
@@ -32,8 +33,15 @@ interface ChatViewProps {
   onStopStreaming: () => void;
   onRemovePinnedFile: (file: string) => void;
   onAttachFile?: (file: string) => void;
+  activeAgent?: AgentRole | null;
+  agentThoughts?: Record<string, string>;
+  harnessLogs?: string;
+  isWorkshopExpanded?: boolean;
+  onToggleWorkshopExpand?: () => void;
   lang?: Language;
   t?: Translations;
+  onEditPrompt?: (prompt: string) => void;
+  onRegenerateMessage?: (messageId: string, prompt?: string) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = React.memo(({
@@ -55,8 +63,15 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
   onStopStreaming,
   onRemovePinnedFile,
   onAttachFile,
+  activeAgent = null,
+  agentThoughts = {},
+  harnessLogs = '',
+  isWorkshopExpanded,
+  onToggleWorkshopExpand,
   lang,
   t: propT,
+  onEditPrompt,
+  onRegenerateMessage,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentLang = lang || getLanguage();
@@ -171,7 +186,13 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
         ) : (
           <div className="max-w-4xl mx-auto w-full pt-6 pb-6 px-4 space-y-4">
             {messages.map((msg) => (
-              <ChatMessageItem key={msg.id} message={msg} />
+              <ChatMessageItem
+                key={msg.id}
+                message={msg}
+                activeWorkspace={activeWorkspace}
+                onEditPrompt={onEditPrompt}
+                onRegenerate={onRegenerateMessage}
+              />
             ))}
           </div>
         )}
@@ -180,6 +201,14 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
       {/* Floating Modern Composer Bar */}
       <div className="p-4 pb-6 pt-2 bg-gradient-to-t from-[#0d1117] via-[#0d1117]/95 to-transparent">
         <div className="max-w-4xl mx-auto w-full">
+          <AgentWorkshop
+            activeAgent={activeAgent}
+            thoughts={agentThoughts}
+            harnessLogs={harnessLogs}
+            isExpanded={isWorkshopExpanded}
+            onToggleExpand={onToggleWorkshopExpand}
+            lang={currentLang}
+          />
           <ChatInput
             onSendMessage={onSendMessage}
             isStreaming={isStreaming}

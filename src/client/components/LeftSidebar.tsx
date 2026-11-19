@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { Workspace, ChatSession } from '../../types.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
+import { api } from '../api.js';
 import {
   FolderKanban,
   Plus,
@@ -14,6 +15,7 @@ import {
   Pencil,
   Check,
   X,
+  Download,
 } from 'lucide-react';
 
 interface LeftSidebarProps {
@@ -137,6 +139,26 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showWorkspaceMenu]);
+
+  const handleExportSession = async (sess: ChatSession, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const msgs = await api.getMessages(sess.id);
+      let md = `# Cuộc hội thoại: ${sess.title}\n*Thời gian: ${new Date(sess.createdAt).toLocaleString()}*\n\n---\n\n`;
+      for (const m of msgs) {
+        md += `### ${m.role === 'user' ? '👤 Bạn' : '🤖 Trợ lý LocalAI'}\n\n${m.content}\n\n---\n\n`;
+      }
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${sess.title.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9-]/g, '_')}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Failed to export session:', err);
+    }
+  };
 
   return (
     <aside
@@ -476,6 +498,14 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
                           <Pencil className="w-3 h-3" />
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => handleExportSession(sess, e)}
+                        title="Xuất cuộc trò chuyện ra Markdown (.md)"
+                        className="hover:text-emerald-400 text-gray-500 p-1 rounded transition-colors"
+                      >
+                        <Download className="w-3 h-3" />
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => onDeleteSession(sess.id, e)}

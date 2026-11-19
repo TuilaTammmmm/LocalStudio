@@ -6,7 +6,7 @@ import type {
   LocalSkill,
   HardwareStats,
 } from '../types.js';
-import type { FileNode } from '../workspace-fs.js';
+import type { FileNode, RAGSearchResult } from '../workspace-fs.js';
 
 export function getApiUrl(endpoint: string): string {
   const clean = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
@@ -67,6 +67,46 @@ export const api = {
 
   async getWorkspaceTree(id: string): Promise<{ rootPath: string; tree: FileNode[] }> {
     const res = await fetch(`${API_BASE}/workspaces/${id}/tree`);
+    return res.json();
+  },
+
+  async readWorkspaceFile(workspaceId: string, filePath: string): Promise<{ path: string; content?: string; size?: number; error?: string }> {
+    const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/file?path=${encodeURIComponent(filePath)}`);
+    return res.json();
+  },
+
+  async saveWorkspaceFile(workspaceId: string, filePath: string, content: string): Promise<{ success: boolean; path: string; size: number; previousContent?: string }> {
+    const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/file/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, content }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to save file' }));
+      throw new Error(err.error || 'Failed to save file');
+    }
+    return res.json();
+  },
+
+  async revertWorkspaceFile(workspaceId: string, filePath: string, previousContent: string): Promise<boolean> {
+    const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/file/revert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, previousContent }),
+    });
+    return res.ok;
+  },
+
+  async searchWorkspaceRAG(workspaceId: string, query: string): Promise<{
+    workspaceId: string;
+    query: string;
+    count: number;
+    results: RAGSearchResult[];
+  }> {
+    const res = await fetch(
+      `${API_BASE}/workspaces/${encodeURIComponent(workspaceId)}/rag/search?q=${encodeURIComponent(query)}`
+    );
+    if (!res.ok) throw new Error('Failed to retrieve RAG search results');
     return res.json();
   },
 

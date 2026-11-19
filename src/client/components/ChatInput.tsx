@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { LocalSkill, ProviderConfig } from '../../types.js';
 import type { FileNode } from '../../workspace-fs.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
@@ -70,6 +70,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [attachedImage, setAttachedImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const [autocompleteMode, setAutocompleteMode] = useState<'skill' | 'file' | null>(null);
   const [autocompleteQuery, setAutocompleteQuery] = useState('');
+  const [selectedAutocompleteIndex, setSelectedAutocompleteIndex] = useState(0);
   const [showProviderMenu, setShowProviderMenu] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
@@ -85,6 +86,23 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [isResizingInput, setIsResizingInput] = useState(false);
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(60);
+  const [autoApply, setAutoApply] = useState(() => localStorage.getItem('localai_auto_apply') === 'true');
+  const [conciseMode, setConciseMode] = useState(() => localStorage.getItem('localai_concise_mode') === 'true');
+
+  useEffect(() => {
+    const handleEditPromptEvent = (e: any) => {
+      const prompt = typeof e.detail === 'string' ? e.detail : e.detail?.prompt;
+      if (typeof prompt === 'string') {
+        setText(prompt);
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(prompt.length, prompt.length);
+        }
+      }
+    };
+    window.addEventListener('localai:edit-prompt', handleEditPromptEvent);
+    return () => window.removeEventListener('localai:edit-prompt', handleEditPromptEvent);
+  }, []);
 
   useEffect(() => {
     if (!isResizingInput) return;
@@ -186,17 +204,88 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  // Flatten file list for @ autocomplete
-  const flatFiles: string[] = [];
-  const collectFiles = (nodes: FileNode[]) => {
-    for (const node of nodes) {
-      if (!node.isDirectory) flatFiles.push(node.relativePath);
-      if (node.children) collectFiles(node.children);
-    }
-  };
-  collectFiles(fileTree);
+  // Flatten file list for @ autocomplete (memoized to avoid recursive traversal lag)
+  const flatFiles = useMemo(() => {
+    const list: string[] = [];
+    const collectFiles = (nodes: FileNode[]) => {
+      for (const node of nodes) {
+        if (!node.isDirectory) list.push(node.relativePath);
+        if (node.children) collectFiles(node.children);
+      }
+    };
+    collectFiles(fileTree);
+    return list;
+  }, [fileTree]);
+
+  const filteredFiles = useMemo(() => {
+    return flatFiles
+      .filter((f) => !autocompleteQuery || f.toLowerCase().includes(autocompleteQuery))
+      .slice(0, 15);
+  }, [flatFiles, autocompleteQuery]);
+
+  const filteredSkills = useMemo(() => {
+    return availableSkills
+      .filter((s) => s.enabled)
+      .filter((s) => {
+        if (!autocompleteQuery) return true;
+        return (
+          s.triggers.some((t) => t.toLowerCase().includes(autocompleteQuery)) ||
+          s.name.toLowerCase().includes(autocompleteQuery)
+        );
+      });
+  }, [availableSkills, autocompleteQuery]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (autocompleteMode === 'file') {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedAutocompleteIndex((prev) => (filteredFiles.length ? (prev + 1) % filteredFiles.length : 0));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedAutocompleteIndex((prev) => (filteredFiles.length ? (prev - 1 + filteredFiles.length) % filteredFiles.length : 0));
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && filteredFiles.length > 0) {
+        e.preventDefault();
+        const chosen = filteredFiles[selectedAutocompleteIndex] || filteredFiles[0];
+        if (chosen) {
+          selectFile(chosen);
+          return;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setAutocompleteMode(null);
+        return;
+      }
+    } else if (autocompleteMode === 'skill') {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedAutocompleteIndex((prev) => (filteredSkills.length ? (prev + 1) % filteredSkills.length : 0));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedAutocompleteIndex((prev) => (filteredSkills.length ? (prev - 1 + filteredSkills.length) % filteredSkills.length : 0));
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && filteredSkills.length > 0) {
+        e.preventDefault();
+        const chosen = filteredSkills[selectedAutocompleteIndex] || filteredSkills[0];
+        if (chosen) {
+          selectSkill(chosen.triggers[0]);
+          return;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setAutocompleteMode(null);
+        return;
+      }
+    }
+
     if (e.key === 'Escape') {
       setAutocompleteMode(null);
       setShowProviderMenu(false);
@@ -245,6 +334,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (lastWordMatch) {
       const trigger = lastWordMatch[1];
       const query = lastWordMatch[2] || '';
+      setSelectedAutocompleteIndex(0);
       if (trigger === '/') {
         setAutocompleteMode('skill');
         setAutocompleteQuery(query.toLowerCase());
@@ -255,6 +345,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     } else {
       setAutocompleteMode(null);
       setAutocompleteQuery('');
+      setSelectedAutocompleteIndex(0);
     }
   };
 
@@ -300,61 +391,59 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-sky-400" />
               <span>Select Skill (/{autocompleteQuery})</span>
             </div>
-            <span className="text-[9px] text-gray-500 font-mono">Space to cancel</span>
+            <span className="text-[9px] text-gray-500 font-mono">↑↓ / Enter / Esc</span>
           </div>
           <div className="max-h-56 overflow-y-auto space-y-1">
-            {availableSkills
-              .filter((s) => s.enabled)
-              .filter((s) => {
-                if (!autocompleteQuery) return true;
-                return (
-                  s.triggers.some((t) => t.toLowerCase().includes(autocompleteQuery)) ||
-                  s.name.toLowerCase().includes(autocompleteQuery)
-                );
-              })
-              .map((skill) => (
-                <button
-                  key={skill.id}
-                  onClick={() => selectSkill(skill.triggers[0])}
-                  className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-[#21262d] text-left text-xs transition-colors group"
-                >
-                  <div>
-                    <span className="font-semibold text-sky-400 font-mono group-hover:underline">
-                      {skill.triggers[0]}
-                    </span>
-                    <p className="text-[11px] text-gray-400 truncate max-w-[240px] mt-0.5">
-                      {skill.description}
-                    </p>
-                  </div>
-                </button>
-              ))}
+            {filteredSkills.map((skill, idx) => (
+              <button
+                key={skill.id}
+                onClick={() => selectSkill(skill.triggers[0])}
+                onMouseEnter={() => setSelectedAutocompleteIndex(idx)}
+                className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors group ${
+                  idx === selectedAutocompleteIndex
+                    ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40'
+                    : 'hover:bg-[#21262d] text-gray-200'
+                }`}
+              >
+                <div>
+                  <span className="font-semibold text-sky-400 font-mono group-hover:underline">
+                    {skill.triggers[0]}
+                  </span>
+                  <p className="text-[11px] text-gray-400 truncate max-w-[240px] mt-0.5">
+                    {skill.description}
+                  </p>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       )}
 
       {/* 2. File Suggestions Popup (@) */}
       {autocompleteMode === 'file' && (
-        <div className="absolute bottom-full left-0 mb-3 w-80 max-h-56 overflow-y-auto bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-slide-up backdrop-blur-xl">
+        <div className="absolute bottom-full left-0 mb-3 w-84 max-h-56 overflow-y-auto bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-slide-up backdrop-blur-xl">
           <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex items-center justify-between border-b border-[#30363d] pb-1.5">
             <div className="flex items-center space-x-1.5">
               <FileText className="w-3.5 h-3.5 text-amber-400" />
               <span>Reference File (@{autocompleteQuery})</span>
             </div>
-            <span className="text-[9px] text-gray-500 font-mono">Space to cancel</span>
+            <span className="text-[9px] text-gray-500 font-mono">↑↓ / Enter / Esc</span>
           </div>
-          {flatFiles
-            .filter((f) => !autocompleteQuery || f.toLowerCase().includes(autocompleteQuery))
-            .slice(0, 15)
-            .map((file) => (
-              <button
-                key={file}
-                onClick={() => selectFile(file)}
-                className="w-full flex items-center space-x-2 p-1.5 rounded-md hover:bg-[#21262d] text-left text-xs text-gray-200 transition-colors font-mono truncate"
-              >
-                <Paperclip className="w-3 h-3 text-gray-400 shrink-0" />
-                <span className="truncate">{file}</span>
-              </button>
-            ))}
+          {filteredFiles.map((file, idx) => (
+            <button
+              key={file}
+              onClick={() => selectFile(file)}
+              onMouseEnter={() => setSelectedAutocompleteIndex(idx)}
+              className={`w-full flex items-center space-x-2 p-1.5 rounded-md text-left text-xs transition-colors font-mono truncate ${
+                idx === selectedAutocompleteIndex
+                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                  : 'text-gray-200 hover:bg-[#21262d]'
+              }`}
+            >
+              <Paperclip className={`w-3 h-3 shrink-0 ${idx === selectedAutocompleteIndex ? 'text-sky-400' : 'text-gray-400'}`} />
+              <span className="truncate">{file}</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -457,8 +546,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         />
 
         {/* Bottom Toolbar inside Composer */}
-        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[#30363d]/60 flex-wrap">
-          <div className="flex items-center space-x-1.5 shrink-0 flex-wrap gap-y-1">
+        <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-[#30363d]/60 flex-wrap">
+          <div className="flex items-center space-x-1 shrink-0 flex-wrap gap-y-1">
             {/* Quick @ File button */}
             <button
               type="button"
@@ -468,10 +557,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 setAutocompleteQuery('');
                 textareaRef.current?.focus();
               }}
-              className="inline-flex items-center space-x-1.5 px-2.5 h-7 rounded-md text-[11px] font-medium text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors whitespace-nowrap shrink-0 leading-none"
+              title={tr.fileMention}
+              className="inline-flex items-center space-x-1 px-2 h-7 rounded-md text-[11px] font-medium text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors whitespace-nowrap shrink-0 leading-none"
             >
               <AtSign className="w-3.5 h-3.5 shrink-0" />
-              <span className="whitespace-nowrap">{tr.fileMention}</span>
+              <span className="whitespace-nowrap hidden sm:inline">{tr.fileMention}</span>
             </button>
 
             {/* Quick / Skill button */}
@@ -483,26 +573,36 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 setAutocompleteQuery('');
                 textareaRef.current?.focus();
               }}
-              className="inline-flex items-center space-x-1.5 px-2.5 h-7 rounded-md text-[11px] font-medium text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors whitespace-nowrap shrink-0 leading-none"
+              title={tr.skillSlash}
+              className="inline-flex items-center space-x-1 px-2 h-7 rounded-md text-[11px] font-medium text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors whitespace-nowrap shrink-0 leading-none"
             >
               <Terminal className="w-3.5 h-3.5 shrink-0" />
-              <span className="whitespace-nowrap">{tr.skillSlash}</span>
+              <span className="whitespace-nowrap hidden sm:inline">{tr.skillSlash}</span>
             </button>
 
-            {/* Image / Vision trigger button */}
+            {/* Concise Mode Toggle */}
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              title={currentLang === 'vi' ? "Đính kèm ảnh - Tự động kích hoạt Vision Multimodal Model (Qwen2-VL)" : "Attach image - Auto-dispatches Vision Multimodal Model (Qwen2-VL)"}
-              className="inline-flex items-center space-x-1.5 px-2.5 h-7 rounded-md text-[11px] font-medium text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors border border-amber-500/20 whitespace-nowrap shrink-0 leading-none"
+              onClick={() => {
+                const next = !conciseMode;
+                setConciseMode(next);
+                localStorage.setItem('localai_concise_mode', String(next));
+                window.dispatchEvent(new CustomEvent('localai:concise-mode-changed', { detail: { conciseMode: next } }));
+              }}
+              title={tr.conciseModeDesc}
+              className={`inline-flex items-center space-x-1 px-2 h-7 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 leading-none ${
+                conciseMode
+                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40 shadow-sm'
+                  : 'text-gray-400 hover:text-white hover:bg-[#21262d]'
+              }`}
             >
-              <ImageIcon className="w-3.5 h-3.5 shrink-0" />
-              <span className="whitespace-nowrap">{tr.visionBtn}</span>
+              <Zap className={`w-3.5 h-3.5 shrink-0 ${conciseMode ? 'text-amber-400 fill-current' : 'text-gray-400'}`} />
+              <span className="whitespace-nowrap">{currentLang === 'vi' ? 'Ngắn gọn' : 'Concise'}</span>
             </button>
 
             {/* Token Counter */}
             {text.length > 0 && (
-              <span className="text-[10px] text-gray-500 font-mono ml-2 whitespace-nowrap shrink-0">
+              <span className="text-[10px] text-gray-500 font-mono ml-1 whitespace-nowrap shrink-0">
                 ~{estimatedTokens} {tr.tokens}
               </span>
             )}

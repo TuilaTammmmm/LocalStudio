@@ -1,6 +1,6 @@
 {
   "name": "local-ai-studio",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "LocalAI Team",
   "description": "Local AI Core Backend - Process Manager, Multi-Provider Router & Skills Engine",
   "main": "dist-electron/main.cjs",
@@ -17,7 +17,7 @@
     "electron:build": "pnpm build && pnpm run build:electron && electron-builder --config electron-builder.json",
     "build": "tsc && tsc -p tsconfig.client.json && vite build",
     "start": "node dist/index.js",
-    "test": "tsx test/db.test.ts && tsx test/hardware.test.ts && tsx test/router.test.ts && tsx test/workspace.test.ts && tsx test/skills.test.ts && tsx test/api.test.ts && tsx test/auto-router.test.ts"
+    "test": "tsx test/db.test.ts && tsx test/hardware.test.ts && tsx test/router.test.ts && tsx test/workspace.test.ts && tsx test/skills.test.ts && tsx test/api.test.ts && tsx test/auto-router.test.ts && tsx test/swarm.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",

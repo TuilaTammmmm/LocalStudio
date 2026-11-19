@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import type { Workspace } from '../../types.js';
-import type { FileNode } from '../../workspace-fs.js';
+import type { FileNode, RAGSearchResult } from '../../workspace-fs.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
-import { getApiUrl } from '../api.js';
+import { getApiUrl, api } from '../api.js';
 import {
   Folder,
   FileCode,
@@ -25,6 +25,7 @@ import {
   Trash2,
   Eye,
   Copy,
+  Search,
 } from 'lucide-react';
 
 interface RightSidebarProps {
@@ -75,6 +76,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   const [terminalLogs, setTerminalLogs] = useState<Array<{ text: string; isError?: boolean }>>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [selectedShell, setSelectedShell] = useState<'powershell' | 'cmd' | 'bash'>('powershell');
+  const [lastTerminalError, setLastTerminalError] = useState<{ command: string; error: string } | null>(null);
 
   // In-app file viewer state
   const [viewingFile, setViewingFile] = useState<{
@@ -87,6 +89,37 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
     error?: string;
   } | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+
+  // Offline RAG Search state
+  const [ragQuery, setRagQuery] = useState('');
+  const [ragSearching, setRagSearching] = useState(false);
+  const [ragResults, setRagResults] = useState<RAGSearchResult[]>([]);
+  const [ragSearched, setRagSearched] = useState(false);
+  const [ragError, setRagError] = useState<string | null>(null);
+
+  const handleRagSearch = async () => {
+    if (!activeWorkspace?.id) {
+      setRagError(
+        currentLang === 'vi'
+          ? 'Vui lòng chọn hoặc mở một dự án để tìm kiếm RAG.'
+          : 'Please select a workspace to perform RAG search.'
+      );
+      return;
+    }
+    if (!ragQuery.trim() || ragSearching) return;
+
+    setRagSearching(true);
+    setRagError(null);
+    try {
+      const data = await api.searchWorkspaceRAG(activeWorkspace.id, ragQuery.trim());
+      setRagResults(data.results || []);
+      setRagSearched(true);
+    } catch (err: any) {
+      setRagError(err.message || 'Lỗi tra cứu RAG');
+    } finally {
+      setRagSearching(false);
+    }
+  };
 
   // Close preview and sync system prompt on workspace switch
   useEffect(() => {
@@ -249,9 +282,13 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
       }
       if (data.stderr) {
         setTerminalLogs((prev) => [...prev, { text: data.stderr, isError: true }]);
+        setLastTerminalError({ command: cmd, error: data.stderr });
+      } else {
+        setLastTerminalError(null);
       }
     } catch (err: any) {
       setTerminalLogs((prev) => [...prev, { text: `Error: ${err.message}`, isError: true }]);
+      setLastTerminalError({ command: cmd, error: err.message });
     } finally {
       setIsRunning(false);
     }
@@ -450,6 +487,29 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
               ))}
             </div>
 
+            {/* Auto-Fix Terminal Error with AI button */}
+            {lastTerminalError && (
+              <div className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 animate-fade-in shrink-0">
+                <span className="text-[11px] text-amber-300 font-medium truncate max-w-[180px]">
+                  ⚠️ Lỗi: {lastTerminalError.command}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.dispatchEvent(
+                      new CustomEvent('localai:ask-ai-error', {
+                        detail: lastTerminalError,
+                      })
+                    );
+                  }}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] transition-colors shrink-0 shadow-sm"
+                >
+                  <Sparkles className="w-3 h-3 fill-current" />
+                  <span>Hỏi AI sửa lỗi</span>
+                </button>
+              </div>
+            )}
+
             {/* Command Input Box with Shell Picker */}
             <div className="space-y-1.5 shrink-0">
               <div className="flex items-center space-x-1.5">
@@ -554,29 +614,196 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
         {/* TAB 4: OFFLINE RAG RETRIEVAL */}
         {openTabs.includes('rag') && activeTab === 'rag' && (
           <div className="space-y-3 animate-fade-in">
-            <div className="p-3.5 rounded-xl glass-card border border-sky-500/30 space-y-2">
-              <div className="flex items-center space-x-2">
-                <Database className="w-4 h-4 text-sky-400" />
-                <span className="font-bold text-xs text-white">Offline Vector RAG</span>
+            <div className="p-3 rounded-xl glass-card border border-sky-500/30 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Database className="w-4 h-4 text-sky-400" />
+                  <span className="font-bold text-xs text-white">Offline Vector RAG</span>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono font-semibold">
+                  100% Offline
+                </span>
               </div>
               <p className="text-[11px] text-gray-300 leading-relaxed">
                 {tr.ragExplanation}
               </p>
             </div>
 
+            {/* Search Input & Button */}
             <div className="space-y-2">
-              <input
-                type="text"
-                placeholder={tr.ragSearchPlaceholder}
-                className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-gray-200 font-mono focus:outline-none focus:border-sky-500"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  value={ragQuery}
+                  onChange={(e) => setRagQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleRagSearch()}
+                  placeholder={tr.ragSearchPlaceholder}
+                  className="w-full pl-8 pr-8 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-gray-200 font-mono focus:outline-none focus:border-sky-500"
+                />
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5" />
+                {ragQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRagQuery('');
+                      setRagResults([]);
+                      setRagSearched(false);
+                    }}
+                    className="absolute right-2.5 top-2.5 text-gray-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
               <button
                 type="button"
-                className="w-full py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-colors"
+                onClick={handleRagSearch}
+                disabled={ragSearching || !ragQuery.trim()}
+                className="w-full py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-colors disabled:opacity-50 flex items-center justify-center space-x-1.5"
               >
-                {tr.ragSearchBtn}
+                {ragSearching ? (
+                  <>
+                    <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{currentLang === 'vi' ? 'Đang truy xuất...' : 'Retrieving...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Database className="w-3.5 h-3.5" />
+                    <span>{tr.ragSearchBtn}</span>
+                  </>
+                )}
               </button>
             </div>
+
+            {/* Error Message */}
+            {ragError && (
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[11px]">
+                {ragError}
+              </div>
+            )}
+
+            {/* Results Header & List */}
+            {ragSearched && (
+              <div className="space-y-2.5 pt-1">
+                <div className="flex items-center justify-between text-[11px] text-gray-400">
+                  <span>
+                    {currentLang === 'vi'
+                      ? `Tìm thấy ${ragResults.length} đoạn mã phù hợp`
+                      : `Found ${ragResults.length} matching snippets`}
+                  </span>
+                  {ragResults.length > 0 && (
+                    <span className="text-[10px] text-sky-400 font-mono font-semibold">
+                      Ranked by Relevance
+                    </span>
+                  )}
+                </div>
+
+                {ragResults.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 text-center text-gray-500 text-xs space-y-1">
+                    <p className="font-medium text-gray-400">
+                      {currentLang === 'vi' ? 'Không tìm thấy kết quả' : 'No matching results'}
+                    </p>
+                    <p className="text-[10px]">
+                      {currentLang === 'vi'
+                        ? 'Thử tìm từ khóa ngắn hơn, tên hàm hoặc định dạng khác.'
+                        : 'Try searching with shorter keywords, symbol names or phrases.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[380px] overflow-y-auto pr-0.5">
+                    {ragResults.map((item, idx) => {
+                      const isPinned = pinnedFiles.includes(item.relativePath);
+                      return (
+                        <div
+                          key={idx}
+                          className="p-2.5 rounded-xl bg-black/40 border border-white/10 hover:border-sky-500/30 transition-all space-y-1.5 group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div
+                              onClick={() => {
+                                setViewingFile({
+                                  path: item.relativePath,
+                                  name: item.relativePath.split('/').pop() || '',
+                                  content: item.snippet,
+                                  loading: false,
+                                });
+                              }}
+                              className="flex items-center space-x-1.5 truncate cursor-pointer hover:text-sky-300 transition-colors"
+                              title={item.filePath}
+                            >
+                              <FileCode className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                              <span className="font-mono text-[11px] text-gray-200 font-semibold truncate">
+                                {item.relativePath}
+                              </span>
+                              <span className="text-[10px] text-sky-400/80 font-mono shrink-0">
+                                L{item.startLine}-{item.endLine}
+                              </span>
+                            </div>
+
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 font-mono shrink-0">
+                              score {item.score}
+                            </span>
+                          </div>
+
+                          {/* Snippet Preview */}
+                          <pre
+                            onClick={() => {
+                              setViewingFile({
+                                path: item.relativePath,
+                                name: item.relativePath.split('/').pop() || '',
+                                content: item.snippet,
+                                loading: false,
+                              });
+                            }}
+                            className="p-1.5 rounded-lg bg-black/60 border border-white/5 text-[10px] font-mono text-gray-300 max-h-20 overflow-hidden leading-relaxed whitespace-pre-wrap break-all cursor-pointer hover:bg-black/80 transition-colors"
+                            title={currentLang === 'vi' ? 'Nhấp để xem toàn bộ tệp' : 'Click to preview file'}
+                          >
+                            {item.snippet}
+                          </pre>
+
+                          {/* Quick Actions */}
+                          <div className="flex items-center justify-between pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setViewingFile({
+                                  path: item.relativePath,
+                                  name: item.relativePath.split('/').pop() || '',
+                                  content: item.snippet,
+                                  loading: false,
+                                });
+                              }}
+                              className="text-[10px] text-gray-400 hover:text-white flex items-center space-x-1 transition-colors"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>{currentLang === 'vi' ? 'Xem tệp' : 'View'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onTogglePinFile(item.relativePath)}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center space-x-1 border transition-all ${
+                                isPinned
+                                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 hover:text-white border-white/10'
+                              }`}
+                            >
+                              <Pin className="w-3 h-3" />
+                              <span>
+                                {isPinned
+                                  ? (currentLang === 'vi' ? 'Đã ghim' : 'Pinned')
+                                  : (currentLang === 'vi' ? 'Ghim vào Chat' : 'Pin to Chat')}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

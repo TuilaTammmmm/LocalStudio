@@ -72,9 +72,9 @@ export function getSmartModelPreset(filename: string, fileSizeBytes?: number): S
   const isLarge = lower.includes('8b') || lower.includes('9b') || (fileSizeBytes && fileSizeBytes > 4.8 * 1024 * 1024 * 1024);
 
   if (isSmall) {
-    // 1.5B - 3B fits entirely in 4GB VRAM
+    // 1B - 3B fits entirely in 4GB VRAM; allocate 8192 context size safely for ample headspace
     recommendedNgl = 99;
-    recommendedCtxSize = 4096;
+    recommendedCtxSize = 8192;
   } else if (isLarge) {
     // 8B - 9B (~5.4GB) requires hybrid offloading: 18-20 layers into 4GB VRAM, rest on CPU RAM
     recommendedNgl = 18;

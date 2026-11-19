@@ -79,6 +79,8 @@ export interface Translations {
   fileMention: string;
   skillSlash: string;
   visionBtn: string;
+  conciseMode: string;
+  conciseModeDesc: string;
   send: string;
   stop: string;
   tokens: string;
@@ -89,6 +91,24 @@ export interface Translations {
   useCustomModel: string;
   noMatchingModels: string;
   contextHeader: string;
+
+  // Diff Viewer
+  diffViewerCode: string;
+  diffViewerDiff: string;
+  diffNoChanges: string;
+  diffNewFile: string;
+
+  // Agent Workshop
+  agentWorkshopTitle: string;
+  agentCoordinator: string;
+  agentCoder: string;
+  agentCritic: string;
+  agentHarness: string;
+  agentIdle: string;
+  agentActive: string;
+  agentDone: string;
+  agentThought: string;
+  harnessLogs: string;
 
   // Workspace Tools
   workspaceToolsTitle: string;
@@ -317,6 +337,8 @@ export const dictionaries: Record<Language, Translations> = {
     fileMention: 'Reference File',
     skillSlash: 'Skill',
     visionBtn: 'Image (Vision)',
+    conciseMode: 'Concise',
+    conciseModeDesc: 'Strict anti-verbosity mode (concise code & bullet points)',
     send: 'Send',
     stop: 'Stop',
     tokens: 'tokens',
@@ -327,6 +349,24 @@ export const dictionaries: Record<Language, Translations> = {
     useCustomModel: 'Use custom model:',
     noMatchingModels: 'No matching models found.',
     contextHeader: 'Context:',
+
+    // Diff Viewer
+    diffViewerCode: 'Code',
+    diffViewerDiff: 'Diff',
+    diffNoChanges: 'No changes compared to current file',
+    diffNewFile: 'New file (not saved to workspace yet)',
+
+    // Agent Workshop
+    agentWorkshopTitle: 'Agent Workshop',
+    agentCoordinator: 'Coordinator',
+    agentCoder: 'Coder',
+    agentCritic: 'Critic',
+    agentHarness: 'Harness',
+    agentIdle: 'Idle',
+    agentActive: 'Working...',
+    agentDone: 'Done',
+    agentThought: 'Thought Process',
+    harnessLogs: 'Harness Test Logs',
 
     workspaceToolsTitle: 'Workspace Tools',
     addToolBtn: 'Add Tool',
@@ -448,7 +488,7 @@ export const dictionaries: Record<Language, Translations> = {
     testAndSyncBtn: 'Test & Sync Models',
 
     aboutTitle: 'LocalAI Desktop Studio',
-    aboutSubtitle: 'v1.0.3 • Embedded llama.cpp & CUDA Engine',
+    aboutSubtitle: 'v1.0.4 • Embedded llama.cpp & CUDA Engine',
     productionReady: 'Production Ready',
     aboutDesc: 'LocalAI is an independent, standalone local AI workstation engineered for 4GB VRAM GPUs (GTX 1650), featuring smart multi-model routing (Coder, Reasoner, Vision, Cloud) and local tools.',
     runtimeCore: 'Runtime Core:',
@@ -524,7 +564,7 @@ export const dictionaries: Record<Language, Translations> = {
     noChats: 'Chưa có cuộc trò chuyện nào. Bấm Hội thoại mới để bắt đầu.',
 
     whatToBuild: 'Hôm nay bạn muốn xây dựng điều gì?',
-    runningOnHw: 'Chạy trực tiếp trên GTX 1650 (CUDA) của bạn hoặc đồng bộ qua FreeLLM Cloud.',
+    runningOnHw: 'Chạy trực tiếp trên card đồ họa GTX 1650 hoặc đồng bộ qua FreeLLM Cloud.',
     selectOrCreateChat: 'Chọn hoặc tạo cuộc trò chuyện',
     pickChatDesc: 'Chọn phiên chat bên trái hoặc nhấn Cuộc trò chuyện mới để bắt đầu.',
     quickStarterCodeTitle: 'Đánh giá mã nguồn dự án',
@@ -535,16 +575,18 @@ export const dictionaries: Record<Language, Translations> = {
     quickStarterArchPrompt: 'Phân tích kiến trúc tổng thể của workspace này và luồng xử lý dữ liệu chính.',
     quickStarterThinkTitle: 'Chế độ tư duy sâu',
     quickStarterThinkDesc: 'Tư duy logic từng bước cho thuật toán phức tạp',
-    quickStarterThinkPrompt: 'Hãy dùng tư duy logic từng bước (Deep Reasoning) để giải bài toán tối ưu hóa thuật toán sau:',
+    quickStarterThinkPrompt: 'Hãy dùng tư duy logic từng bước để giải bài toán tối ưu hóa thuật toán sau:',
     quickStarterTestTitle: 'Tạo bộ kiểm thử Unit Test',
     quickStarterTestDesc: 'Xây dựng bộ test hoàn chỉnh cho các thành phần quan trọng',
-    quickStarterTestPrompt: 'Viết bộ kiểm thử tự động (Unit Tests) đầy đủ bao phủ các trường hợp biên.',
+    quickStarterTestPrompt: 'Viết bộ kiểm thử tự động đầy đủ bao phủ các trường hợp biên.',
 
     askPlaceholder: 'Đặt câu hỏi, gõ @ để trỏ file, hoặc / để gọi kỹ năng...',
-    visionPlaceholder: 'Nhập câu hỏi về hình ảnh này (Qwen2-VL sẽ tự động kích hoạt)...',
+    visionPlaceholder: 'Nhập câu hỏi về hình ảnh này...',
     fileMention: 'Trỏ tệp',
     skillSlash: 'Kỹ năng',
-    visionBtn: 'Ảnh (Vision)',
+    visionBtn: 'Ảnh',
+    conciseMode: 'Ngắn gọn',
+    conciseModeDesc: 'Chế độ trả lời ngắn gọn, ưu tiên code trực tiếp và gạch đầu dòng súc tích',
     send: 'Gửi',
     stop: 'Dừng',
     tokens: 'tokens',
@@ -555,6 +597,24 @@ export const dictionaries: Record<Language, Translations> = {
     useCustomModel: 'Dùng model tùy chỉnh:',
     noMatchingModels: 'Không tìm thấy model phù hợp.',
     contextHeader: 'Ngữ cảnh:',
+
+    // Diff Viewer
+    diffViewerCode: 'Mã nguồn',
+    diffViewerDiff: 'So sánh',
+    diffNoChanges: 'Không có thay đổi so với tệp hiện tại',
+    diffNewFile: 'Tệp mới (chưa lưu trên đĩa)',
+
+    // Agent Workshop
+    agentWorkshopTitle: 'Biệt đội AI',
+    agentCoordinator: 'Trưởng nhóm',
+    agentCoder: 'Lập trình viên',
+    agentCritic: 'Phản biện',
+    agentHarness: 'Kiểm thử',
+    agentIdle: 'Sẵn sàng',
+    agentActive: 'Đang xử lý...',
+    agentDone: 'Hoàn tất',
+    agentThought: 'Ghi chú',
+    harnessLogs: 'Nhật ký kiểm thử',
 
     workspaceToolsTitle: 'Công cụ làm việc',
     addToolBtn: 'Thêm công cụ',
@@ -676,7 +736,7 @@ export const dictionaries: Record<Language, Translations> = {
     testAndSyncBtn: 'Kiểm tra & Đồng bộ mô hình',
 
     aboutTitle: 'LocalAI Desktop Studio',
-    aboutSubtitle: 'v1.0.3 • Tích hợp nhân llama.cpp & Động cơ CUDA',
+    aboutSubtitle: 'v1.0.4 • Tích hợp nhân llama.cpp & Động cơ CUDA',
     productionReady: 'Sẵn sàng vận hành',
     aboutDesc: 'LocalAI là nền tảng máy trạm AI cục bộ độc lập, tích hợp bộ tăng tốc phần cứng cho GPU 4GB VRAM (GTX 1650), tự động định tuyến mô hình đa nhiệm và hệ thống kỹ năng cục bộ.',
     runtimeCore: 'Nhân hệ thống:',

@@ -122,17 +122,19 @@ export class ProviderClient {
       stream: true,
       temperature: options.temperature ?? defaultTemp,
       top_p: options.topP ?? defaultTopP,
-      max_tokens: options.maxTokens || 4096,
+      max_tokens: Math.min(options.maxTokens || (isLocal ? 2048 : 4096), 4096),
+      stop: ['<|im_end|>', '<|eot_id|>', '<end_of_turn>', '</s>', '\nNgười dùng:', '\nUser:'],
     };
 
     if (isLocal) {
-      // Gentle repetition control: avoid aggressive penalties that destroy reasoning or trigger degradation in Gemma 2
-      payload.repeat_penalty = Math.min(options.repeatPenalty ?? 1.05, 1.1);
-      payload.repeat_last_n = 64;
+      // Repetition control: repeat_last_n = 256 covers the entire previous code block/paragraph to prevent infinite loops
+      payload.repeat_penalty = Math.min(Math.max(options.repeatPenalty ?? 1.10, 1.05), 1.15);
+      payload.repeat_last_n = 256;
       payload.min_p = 0.05;
       // Do NOT set dry_multiplier by default as it severely penalizes Gemma 2 & DeepSeek-R1 logic chains
     } else {
       payload.frequency_penalty = 0.3;
+      payload.presence_penalty = 0.1;
     }
 
     const res = await fetch(url, {

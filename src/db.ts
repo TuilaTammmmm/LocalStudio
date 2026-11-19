@@ -68,8 +68,28 @@ export class DatabaseService {
   private dbFilePath: string;
   private db: AppDatabase;
 
-  constructor(dataDir = path.resolve(process.cwd(), '.data')) {
-    this.dataDir = dataDir;
+  constructor(customDataDir?: string) {
+    if (customDataDir) {
+      this.dataDir = customDataDir;
+    } else {
+      const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || 'C:\\';
+      const appData = process.env.APPDATA || (process.platform === 'darwin' ? path.join(home, 'Library', 'Application Support') : path.join(home, '.config'));
+      const persistentDir = path.join(appData, 'LocalAI', 'data');
+
+      // Auto-migrate legacy .data/database.json from project directory if present
+      const legacyDataDir = path.resolve(process.cwd(), '.data');
+      const legacyDbFile = path.join(legacyDataDir, 'database.json');
+      const persistentDbFile = path.join(persistentDir, 'database.json');
+
+      if (fs.existsSync(legacyDbFile) && !fs.existsSync(persistentDbFile)) {
+        try {
+          fs.mkdirSync(persistentDir, { recursive: true });
+          fs.copyFileSync(legacyDbFile, persistentDbFile);
+        } catch {}
+      }
+
+      this.dataDir = persistentDir;
+    }
     this.dbFilePath = path.join(this.dataDir, 'database.json');
     this.db = this.init();
   }
@@ -111,7 +131,14 @@ export class DatabaseService {
         }
         return parsed;
       } catch (err) {
-        console.error('Failed to parse database file, resetting with defaults:', err);
+        console.error('Failed to parse database file, attempting recovery from backup:', err);
+        const backupFile = path.join(this.dataDir, 'database.backup.json');
+        if (fs.existsSync(backupFile)) {
+          try {
+            const rawBackup = fs.readFileSync(backupFile, 'utf-8');
+            return JSON.parse(rawBackup);
+          } catch {}
+        }
       }
     }
 
@@ -171,6 +198,10 @@ export class DatabaseService {
     const tmpPath = `${this.dbFilePath}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
     fs.renameSync(tmpPath, this.dbFilePath);
+    try {
+      const backupPath = path.join(this.dataDir, 'database.backup.json');
+      fs.copyFileSync(this.dbFilePath, backupPath);
+    } catch {}
   }
 
   // Workspaces

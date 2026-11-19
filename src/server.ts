@@ -14,6 +14,7 @@ import { ModelHubService, CURATED_MODELS, type ModelHubItem, parseModelMetadata 
 import { ModelDownloaderService } from './model-downloader.js';
 import { getSmartModelPreset } from './model-presets.js';
 import { AppUpdater } from './updater.js';
+import { SwarmEngine } from './swarm-engine.js';
 import { exec, spawn, execFile } from 'node:child_process';
 import util from 'node:util';
 import os from 'node:os';
@@ -22,6 +23,37 @@ import fs from 'node:fs';
 
 const execAsync = util.promisify(exec);
 
+export const DEFAULT_SYSTEM_PROMPT =
+  `You are an elite, highly concise software engineering AI.
+STRICT NEGATIVE CONSTRAINTS:
+- Do NOT include greetings, pleasantries, or preamble (e.g., "Hello!", "Sure, I can help with that", "Here is the code").
+- Do NOT repeat or paraphrase the user's prompt.
+- Do NOT include conversational filler, meta-commentary, or sign-offs (e.g., "Hope this helps!", "Let me know if you need anything else").
+- Output direct, production-ready code with minimal, essential explanations only.
+- Use concise bullet points for explanations instead of lengthy paragraphs.`;
+
+export function discoverWorkspaceRules(folderPath?: string): string | null {
+  if (!folderPath || !fs.existsSync(folderPath)) return null;
+  const candidateFiles = ['.localairules', '.cursorrules'];
+  for (const filename of candidateFiles) {
+    const fullPath = path.join(folderPath, filename);
+    if (fs.existsSync(fullPath)) {
+      try {
+        const stats = fs.statSync(fullPath);
+        if (stats.isFile()) {
+          const raw = fs.readFileSync(fullPath, 'utf-8');
+          if (Buffer.byteLength(raw, 'utf-8') > 3500) {
+            const buf = Buffer.from(raw, 'utf-8');
+            return buf.subarray(0, 3500).toString('utf-8');
+          }
+          return raw;
+        }
+      } catch {}
+    }
+  }
+  return null;
+}
+
 export function createServer(
   db: DatabaseService,
   llamaManager: LlamaProcessManager,
@@ -29,6 +61,7 @@ export function createServer(
 ) {
   const app = new Hono();
   const hwMonitor = new HardwareMonitor();
+  const swarmEngine = new SwarmEngine({ router, db });
 
   app.use('/*', cors());
 
@@ -437,6 +470,106 @@ export function createServer(
     }
   });
 
+  // 2.05 Offline RAG / Fast Code Retrieval across Workspace
+  app.get('/api/workspaces/:id/rag/search', (c) => {
+    const id = c.req.param('id');
+    const query = c.req.query('q') || '';
+    const ws = db.getWorkspace(id);
+    if (!ws) return c.json({ error: 'Workspace not found' }, 404);
+
+    const results = WorkspaceFS.searchWorkspaceRAG(ws.folderPath, query);
+    return c.json({
+      workspaceId: id,
+      query,
+      count: results.length,
+      results,
+    });
+  });
+
+  // 2.1 Write / Save File to Workspace (Apply to File / Auto-Apply)
+  app.post('/api/workspaces/:id/file/save', async (c) => {
+    const id = c.req.param('id');
+    const { path: relPath, content } = await c.req.json();
+    if (!relPath || typeof content !== 'string') {
+      return c.json({ error: 'path and content are required' }, 400);
+    }
+
+    const ws = db.getWorkspace(id);
+    if (!ws) return c.json({ error: 'Workspace not found' }, 404);
+
+    try {
+      const normalizedRel = relPath.replace(/\//g, path.sep).trim();
+      if (!WorkspaceFS.isSafePath(ws.folderPath, normalizedRel)) {
+        return c.json({ error: 'Security Violation: Path traversal outside workspace boundary' }, 403);
+      }
+
+      const fullTargetPath = path.isAbsolute(normalizedRel)
+        ? normalizedRel
+        : path.resolve(ws.folderPath, normalizedRel);
+
+      if (!WorkspaceFS.isSafePath(ws.folderPath, fullTargetPath)) {
+        return c.json({ error: 'Security Violation: Path traversal outside workspace boundary' }, 403);
+      }
+
+      const parentDir = path.dirname(fullTargetPath);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
+
+      // Preserve previous version before overwrite for 1-click Revert/Undo
+      let previousContent: string | null = null;
+      if (fs.existsSync(fullTargetPath)) {
+        try {
+          previousContent = fs.readFileSync(fullTargetPath, 'utf-8');
+          const backupDir = path.join(ws.folderPath, '.localai', 'backups');
+          if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+          const safeBackupName = `${relPath.replace(/[/\\]/g, '_')}.${Date.now()}.bak`;
+          fs.writeFileSync(path.join(backupDir, safeBackupName), previousContent, 'utf-8');
+        } catch {}
+      }
+
+      const { updatedContent, appliedAsPatch } = WorkspaceFS.applyPatchOrFullContent(
+        previousContent ?? '',
+        content
+      );
+
+      fs.writeFileSync(fullTargetPath, updatedContent, 'utf-8');
+      const stat = fs.statSync(fullTargetPath);
+
+      return c.json({
+        success: true,
+        path: relPath,
+        size: stat.size,
+        previousContent,
+        appliedAsPatch,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || 'Failed to save file' }, 500);
+    }
+  });
+
+  // 2.2 Revert / Undo File Changes
+  app.post('/api/workspaces/:id/file/revert', async (c) => {
+    const id = c.req.param('id');
+    const { path: relPath, previousContent } = await c.req.json();
+    if (!relPath || typeof previousContent !== 'string') {
+      return c.json({ error: 'path and previousContent are required' }, 400);
+    }
+    const ws = db.getWorkspace(id);
+    if (!ws) return c.json({ error: 'Workspace not found' }, 404);
+    try {
+      const fullTargetPath = path.resolve(ws.folderPath, relPath.replace(/\//g, path.sep).trim());
+      if (!WorkspaceFS.isSafePath(ws.folderPath, fullTargetPath)) {
+        return c.json({ error: 'Access denied' }, 403);
+      }
+      fs.writeFileSync(fullTargetPath, previousContent, 'utf-8');
+      return c.json({ success: true, reverted: true, path: relPath });
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
   // 3. Sessions (Chats inside a Workspace)
   app.get('/api/workspaces/:id/sessions', (c) => {
     const wsId = c.req.param('id');
@@ -526,7 +659,7 @@ export function createServer(
 
   // 6. SSE Streaming Chat Endpoint
   app.post('/api/chat/stream', async (c) => {
-    const { sessionId, prompt, contextFiles, workspaceId, sampling, defaultSystemPrompt } = await c.req.json();
+    const { sessionId, prompt, contextFiles, workspaceId, sampling, defaultSystemPrompt, conciseMode } = await c.req.json();
     if (!sessionId || !prompt) {
       return c.json({ error: 'sessionId and prompt are required' }, 400);
     }
@@ -538,14 +671,13 @@ export function createServer(
     // If model is a reasoning or small model, or if systemPromptMode is 'none', do NOT inject intrusive system prompts
     const isSmallOrReasoning = /r1|reason|1\.5b|1b|2b/i.test(currentModelName);
     const savedModelCfg = currentModelName ? db.getModelConfig(currentModelName) : undefined;
-    const shouldOmitSystemPrompt = savedModelCfg?.systemPromptMode === 'none' || (isSmallOrReasoning && !ws?.systemPrompt);
+    const shouldOmitSystemPrompt = savedModelCfg?.systemPromptMode === 'none';
 
     let baseSystemPrompt = '';
     if (!shouldOmitSystemPrompt) {
-      baseSystemPrompt = (ws?.systemPrompt || '').trim() || (defaultSystemPrompt || '').trim();
+      baseSystemPrompt = (ws?.systemPrompt || '').trim() || (defaultSystemPrompt || '').trim() || DEFAULT_SYSTEM_PROMPT;
     } else if (isSmallOrReasoning && !ws?.systemPrompt) {
-      // Concise, direct answering instruction without identity babble or roleplaying
-      baseSystemPrompt = 'Trả lời trực tiếp, chính xác, ngắn gọn và đi thẳng vào trọng tâm câu hỏi. Khi được yêu cầu viết code, hãy ưu tiên đưa code giải quyết vấn đề và giải thích súc tích.';
+      baseSystemPrompt = DEFAULT_SYSTEM_PROMPT;
     }
 
     // Check Skills
@@ -554,11 +686,32 @@ export function createServer(
     const triggeredSkillMatch = SkillsRunner.matchSlashCommand(prompt, availableSkills);
 
     const effectivePrompt = triggeredSkillMatch ? triggeredSkillMatch.cleanPrompt : prompt;
-    const effectiveSystemPrompt = SkillsRunner.composeSystemPrompt(
+    let effectiveSystemPrompt = SkillsRunner.composeSystemPrompt(
       baseSystemPrompt,
       triggeredSkillMatch?.skill,
       availableSkills
     );
+
+    // Automatically discover .localairules or .cursorrules in ws.folderPath (<= 3500 bytes)
+    const projectRules = ws?.folderPath ? discoverWorkspaceRules(ws.folderPath) : null;
+    if (projectRules) {
+      effectiveSystemPrompt = `${effectiveSystemPrompt}\n\n[PROJECT RULES]:\n${projectRules}`.trim();
+    }
+
+    // Concise Mode: Override sampling (temp=0.2, topP=0.85, repeatPenalty=1.10, maxTokens=1536) and prepend strict concise directive
+    const effectiveSampling = conciseMode
+      ? {
+          temperature: 0.2,
+          topP: 0.85,
+          repeatPenalty: 1.10,
+          maxTokens: 1536,
+        }
+      : sampling;
+
+    if (conciseMode) {
+      const CONCISE_DIRECTIVE = `[STRICT CONCISE MODE ACTIVE]: Output direct answers and production-ready code ONLY. Absolutely NO greetings, conversational filler, repeating the prompt, or polite closings. Use minimal bullet points for explanations.`;
+      effectiveSystemPrompt = `${CONCISE_DIRECTIVE}\n\n${effectiveSystemPrompt}`.trim();
+    }
 
     // Context bundle from tagged workspace files
     let loadedContextFiles: Array<{ path: string; content: string }> = [];
@@ -569,6 +722,35 @@ export function createServer(
         content: f.content,
       }));
     }
+
+    // 4. Lazy Workspace Environment Context Injection:
+    // Only inject file tree when prompt is project-related or files are attached to avoid blowing prompt budget!
+    let workspaceInfo = '';
+    const isProjectRelated =
+      loadedContextFiles.length > 0 ||
+      !!projectRules ||
+      /\b(file|tệp|thư mục|folder|dự án|project|cấu trúc|tree|code|src|build|test|bug|error|refactor|fix|component|api|func|hàm|lớp|class|mã)\b/i.test(
+        effectivePrompt
+      );
+
+    if (isProjectRelated && ws && ws.folderPath && fs.existsSync(ws.folderPath)) {
+      try {
+        const tree = WorkspaceFS.getFileTree(ws.folderPath, 2);
+        const formatSummary = (nodes: typeof tree, depth = 0): string => {
+          if (depth > 2) return '';
+          return nodes
+            .slice(0, 15)
+            .map((n) => `  ${'  '.repeat(depth)}- ${n.name}${n.isDirectory ? '/' : ''}`)
+            .join('\n');
+        };
+        const summary = formatSummary(tree);
+        workspaceInfo = `[NGỮ CẢNH DỰ ÁN ĐANG MỞ]\n- Tên dự án: ${ws.name}\n- Danh sách tệp tin/thư mục chính:\n${summary}\n[HƯỚNG DẪN CODE]: Luôn ghi rõ đường dẫn tệp ở đầu code block (ví dụ: // src/index.ts) để người dùng có thể áp dụng trực tiếp vào dự án.\n\n`;
+      } catch {}
+    }
+
+    const finalPrompt = workspaceInfo
+      ? `${workspaceInfo}--- YÊU CẦU CỦA NGƯỜI DÙNG ---\n${effectivePrompt}\n--- HẾT YÊU CẦU (Hãy tập trung trả lời đúng trọng tâm câu hỏi trên) ---`
+      : effectivePrompt;
 
     return streamSSE(c, async (stream) => {
       try {
@@ -582,17 +764,117 @@ export function createServer(
           });
         }
 
-        for await (const chunk of router.executeChatStream(sessionId, effectivePrompt, {
+        for await (const chunk of router.executeChatStream(sessionId, finalPrompt, {
           systemPrompt: effectiveSystemPrompt,
           contextFiles: loadedContextFiles,
-          temperature: sampling?.temperature,
-          topP: sampling?.topP,
-          maxTokens: sampling?.maxTokens,
-          repeatPenalty: sampling?.repeatPenalty,
+          temperature: effectiveSampling?.temperature,
+          topP: effectiveSampling?.topP,
+          maxTokens: effectiveSampling?.maxTokens,
+          repeatPenalty: effectiveSampling?.repeatPenalty,
         })) {
           await stream.writeSSE({
             event: chunk.done ? 'done' : 'message',
             data: JSON.stringify(chunk),
+          });
+        }
+      } catch (err: any) {
+        await stream.writeSSE({
+          event: 'error',
+          data: JSON.stringify({ message: err.message }),
+        });
+      }
+    });
+  });
+
+  // 6.1 Swarm Sequential Multi-Agent Execution Endpoint
+  app.post('/api/swarm/execute-stream', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const {
+      sessionId,
+      prompt,
+      workspaceId,
+      testCommand,
+      contextFiles,
+      maxIterations,
+      sampling,
+      conciseMode,
+    } = body;
+
+    if (!prompt) {
+      return c.json({ error: 'prompt is required' }, 400);
+    }
+
+    const ws = workspaceId ? db.getWorkspace(workspaceId) : undefined;
+    const projectRules = ws?.folderPath ? discoverWorkspaceRules(ws.folderPath) : undefined;
+
+    let loadedContextFiles: Array<{ path: string; content: string }> = [];
+    if (ws && Array.isArray(contextFiles) && contextFiles.length > 0) {
+      const bundle = ContextBuilder.buildContext(ws.folderPath, contextFiles);
+      loadedContextFiles = bundle.files.map((f) => ({
+        path: f.relativePath,
+        content: f.content,
+      }));
+    }
+
+    const effectiveSampling = conciseMode
+      ? {
+          temperature: 0.2,
+          topP: 0.85,
+          repeatPenalty: 1.10,
+          maxTokens: 1536,
+        }
+      : sampling;
+
+    return streamSSE(c, async (stream) => {
+      let accumulatedContent = '';
+      try {
+        for await (const event of swarmEngine.executeStream({
+          sessionId,
+          taskPrompt: prompt,
+          workspacePath: ws?.folderPath,
+          testCommand,
+          contextFiles: loadedContextFiles,
+          maxIterations: maxIterations || 2,
+          systemRules: projectRules || undefined,
+          sampling: effectiveSampling,
+        })) {
+          if (event.type === 'agent_step') {
+            await stream.writeSSE({
+              event: 'agent_step',
+              data: JSON.stringify(event),
+            });
+          } else if (event.type === 'harness_result') {
+            await stream.writeSSE({
+              event: 'harness_result',
+              data: JSON.stringify(event),
+            });
+          } else if (event.type === 'chunk') {
+            if (event.content) accumulatedContent += event.content;
+            await stream.writeSSE({
+              event: 'message',
+              data: JSON.stringify(event),
+            });
+          } else if (event.type === 'done') {
+            await stream.writeSSE({
+              event: 'done',
+              data: JSON.stringify(event),
+            });
+          } else if (event.type === 'error') {
+            await stream.writeSSE({
+              event: 'error',
+              data: JSON.stringify(event),
+            });
+          }
+        }
+
+        if (sessionId && accumulatedContent) {
+          db.addMessage({
+            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            sessionId,
+            role: 'assistant',
+            content: accumulatedContent,
+            modelUsed: 'Biệt đội AI (Swarm)',
+            createdAt: Date.now(),
           });
         }
       } catch (err: any) {

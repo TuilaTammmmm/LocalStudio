@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { WorkspaceFS } from './workspace-fs.js';
 
 export interface ContextFile {
@@ -68,7 +69,19 @@ export class ContextBuilder {
           continue;
         }
 
-        const content = fs.readFileSync(fullPath, 'utf-8');
+        let content = '';
+        const ext = path.extname(fullPath).toLowerCase();
+        if (ext === '.docx') {
+          try {
+            const pyScript = `import zipfile, xml.etree.ElementTree as ET; z = zipfile.ZipFile(r'''${fullPath}'''); t = ET.fromstring(z.read('word/document.xml')); print(''.join(t.itertext()))`;
+            content = execSync(`python -c "${pyScript}"`, { encoding: 'utf-8', timeout: 5000 }).trim();
+          } catch (docErr: any) {
+            content = `[Lỗi đọc tài liệu docx: ${docErr.message}]`;
+          }
+        } else {
+          content = fs.readFileSync(fullPath, 'utf-8');
+        }
+
         const estimatedTokens = this.estimateTokens(content);
         totalTokens += estimatedTokens;
 

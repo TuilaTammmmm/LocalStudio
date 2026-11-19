@@ -20,7 +20,7 @@ export interface UpdateCheckResult {
 
 export class AppUpdater {
   public static getAppInfo(): AppVersionInfo {
-    let version = '1.0.3';
+    let version = '1.0.4';
     let name = 'local-ai-studio';
 
     try {

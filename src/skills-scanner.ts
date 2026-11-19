@@ -11,6 +11,7 @@ export class SkillsScanner {
   public static detectGlobalSkillDirectories(): string[] {
     const home = os.homedir();
     const candidateRoots = [
+      path.join(home, '.gemini', 'config', 'skills'),
       path.join(home, '.gemini', 'config', 'plugins'),
       path.join(home, '.gemini', 'antigravity', 'builtin', 'skills'),
       path.join(home, '.gemini', 'skills'),
@@ -61,7 +62,10 @@ export class SkillsScanner {
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
         for (const entry of entries) {
-          if (!entry.isDirectory()) continue;
+          const isDir = entry.isDirectory() || (entry.isSymbolicLink() && (() => {
+            try { return fs.statSync(path.join(dirPath, entry.name)).isDirectory(); } catch { return false; }
+          })());
+          if (!isDir) continue;
 
           const skillDir = path.join(dirPath, entry.name);
           const skillFile = path.join(skillDir, 'SKILL.md');

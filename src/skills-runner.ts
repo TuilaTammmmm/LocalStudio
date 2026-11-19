@@ -52,8 +52,15 @@ export class SkillsRunner {
     }
 
     if (triggeredSkill) {
+      // Limit skill instruction size to prevent blowing past model context limits (max ~1500 chars / ~350 tokens)
+      const MAX_SKILL_CHARS = 1500;
+      let instructions = (triggeredSkill.systemInstructions || '').trim();
+      if (instructions.length > MAX_SKILL_CHARS) {
+        instructions = instructions.slice(0, MAX_SKILL_CHARS) + '\n\n...[Hướng dẫn kỹ năng đã được tóm lược để vừa vặn bộ nhớ]...';
+      }
+
       parts.push(
-        `\n\n--- ACTIVE SKILL: ${triggeredSkill.name} ---\n${triggeredSkill.systemInstructions}\n--- END SKILL ---`
+        `\n\n--- ACTIVE SKILL: ${triggeredSkill.name} ---\n${instructions}\n--- END SKILL ---`
       );
     }
 

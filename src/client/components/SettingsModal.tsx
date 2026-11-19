@@ -30,6 +30,7 @@ import {
   Sliders,
   ShieldCheck,
   BookOpen,
+  Database,
   Package,
   Download,
   Search,
@@ -116,14 +117,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [repeatPenalty, setRepeatPenalty] = useState(() => {
     return Number(localStorage.getItem('localai_repeatPenalty') || '1.1');
   });
+  const [autoApply, setAutoApply] = useState(() => {
+    return localStorage.getItem('localai_auto_apply') === 'true';
+  });
   const [defaultSystemPrompt, setDefaultSystemPrompt] = useState(() => {
     return (
       localStorage.getItem('localai_defaultSystemPrompt') ||
-      'Bạn là LocalAI, chuyên gia phát triển phần mềm và trợ lý AI cục bộ thông minh.\n' +
-      'Quy tắc phản hồi:\n' +
-      '1. Luôn sử dụng tiếng Việt tự nhiên, rõ ràng, gãy gọn.\n' +
-      '2. Giữ nguyên thuật ngữ kỹ thuật, code, tên thư viện và cú pháp bằng tiếng Anh.\n' +
-      '3. Trả lời trực tiếp vào trọng tâm, không chào hỏi rườm rà hay mở bài/kết bài thừa thãi.'
+      'Bạn là LocalAI, chuyên gia lập trình và trợ lý AI cục bộ thông minh.\n' +
+      'QUY TẮC BẮT BUỘC:\n' +
+      '1. TUYỆT ĐỐI KHÔNG chào hỏi, không mở bài hay kết bài xã giao (không "Chào bạn", "Tôi sẵn sàng giúp...").\n' +
+      '2. TUYỆT ĐỐI KHÔNG lặp lại câu hỏi hoặc tóm tắt lại prompt của người dùng.\n' +
+      '3. Đi thẳng trực tiếp vào câu trả lời hoặc xuất code giải pháp hoàn chỉnh ngay lập tức.\n' +
+      '4. Giữ nguyên thuật ngữ kỹ thuật, code, tên thư viện và cú pháp bằng tiếng Anh.\n' +
+      '5. Giải thích cực kỳ súc tích dưới dạng các gạch đầu dòng ngắn gọn, không lan man.'
     );
   });
   const [paramSaved, setParamSaved] = useState(false);
@@ -514,8 +520,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setUpdateState({
         loading: false,
         result: {
-          currentVersion: '1.0.3',
-          latestVersion: '1.0.3',
+          currentVersion: '1.0.4',
+          latestVersion: '1.0.4',
           hasUpdate: false,
           releaseNotes: 'Phiên bản hiện tại là mới nhất hoặc chưa cấu hình remote repository.',
         },
@@ -529,6 +535,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     localStorage.setItem('localai_maxTokens', String(maxTokens));
     localStorage.setItem('localai_repeatPenalty', String(repeatPenalty));
     localStorage.setItem('localai_defaultSystemPrompt', defaultSystemPrompt);
+    localStorage.setItem('localai_auto_apply', String(autoApply));
     setParamSaved(true);
     setTimeout(() => setParamSaved(false), 2200);
   };
@@ -712,7 +719,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div className="p-2 border-t border-[#30363d] text-[11px] text-gray-400 font-mono flex items-center justify-between">
             <span>LocalAI Desktop</span>
-            <span className="text-sky-400">v1.0.3</span>
+            <span className="text-sky-400">v1.0.4</span>
           </div>
         </div>
 
@@ -2071,11 +2078,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
 
+                  {/* Auto-Apply Setting */}
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-[#0d1117] border border-[#30363d]">
+                    <div>
+                      <span className="font-semibold text-xs text-gray-200">
+                        {currentLang === 'vi' ? 'Tự động lưu code vào tệp dự án:' : 'Auto-apply code to files:'}
+                      </span>
+                      <p className="text-[11px] text-gray-400">
+                        {currentLang === 'vi'
+                          ? 'Tự động ghi code mới vào tệp dự án khi AI trả lời xong'
+                          : 'Automatically apply code changes into project files'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAutoApply(!autoApply)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors duration-200 ${
+                        autoApply ? 'bg-emerald-500' : 'bg-[#30363d]'
+                      }`}
+                    >
+                      <div
+                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                          autoApply ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
                   {/* System Prompt Preset */}
-                  <div className="space-y-1.5 pt-2">
+                  <div className="space-y-1.5 pt-1">
                     <div className="flex justify-between items-center">
-                      <span className="font-semibold text-xs text-gray-200">Default Global System Prompt:</span>
-                      <span className="text-[10px] text-gray-500 font-mono">Kéo góc dưới phải để mở rộng</span>
+                      <span className="font-semibold text-xs text-gray-200">
+                        {currentLang === 'vi' ? 'Chỉ dẫn hệ thống chung:' : 'Default Global System Prompt:'}
+                      </span>
+                      <span className="text-[10px] text-gray-500 font-mono">
+                        {currentLang === 'vi' ? 'Kéo góc dưới phải để mở rộng' : 'Resize corner'}
+                      </span>
                     </div>
                     <textarea
                       rows={6}
@@ -2093,7 +2131,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center space-x-1.5"
                     >
                       <Check className="w-3.5 h-3.5" />
-                      <span>Save Inference Defaults</span>
+                      <span>{currentLang === 'vi' ? 'Lưu cấu hình mặc định' : 'Save Inference Defaults'}</span>
                     </button>
                   </div>
                 </div>
@@ -2410,24 +2448,118 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 6. RAG */}
             {activeCategory === 'rag' && (
               <div className="space-y-4 animate-fade-in">
+                {/* Intro Card */}
                 <div className="p-4 rounded-xl bg-[#161b22] border border-sky-500/30 space-y-3 shadow-sm">
-                  <div className="flex items-center space-x-2">
-                    <BookOpen className="w-5 h-5 text-sky-400" />
-                    <span className="font-bold text-sm text-white">
-                      {currentLang === 'vi' ? 'Cơ sở tri thức RAG Ngoại Tuyến là gì?' : 'What is Offline RAG?'}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <BookOpen className="w-5 h-5 text-sky-400" />
+                      <span className="font-bold text-sm text-white">
+                        {currentLang === 'vi' ? 'Cơ sở tri thức RAG Ngoại Tuyến (Offline RAG)' : 'Offline Vector & Keyword RAG'}
+                      </span>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-mono font-semibold border border-emerald-500/30">
+                      ● {currentLang === 'vi' ? 'Hoạt động ngoại tuyến 100%' : '100% Offline Active'}
                     </span>
                   </div>
                   <p className="text-[12px] text-gray-300 leading-relaxed">
                     {currentLang === 'vi' ? (
                       <>
-                        <strong>RAG (Truy xuất tăng cường tạo nội dung)</strong> là phương thức tra cứu dữ liệu ngoại tuyến dành cho AI cục bộ. Thay vì phải tinh chỉnh mô hình, ứng dụng sẽ tự động phân tách tài liệu dự án thành các đoạn nhỏ, tạo chỉ mục vector cục bộ và trích xuất chính xác những đoạn liên quan nhất để đưa vào ngữ cảnh câu lệnh.
+                        <strong>RAG (Truy xuất tăng cường tạo nội dung)</strong> là phương thức tra cứu dữ liệu ngoại tuyến tối ưu cho AI cục bộ. Hệ thống tự động phân tách tài liệu dự án thành các đoạn trích 25 dòng có độ gối đầu, đánh chỉ số từ khóa và trích xuất chính xác những đoạn mã liên quan nhất để đưa vào ngữ cảnh câu lệnh mà <strong>không tiêu tốn thêm VRAM GPU</strong>.
                       </>
                     ) : (
                       <>
-                        <strong>RAG (Retrieval-Augmented Generation)</strong> is an "open-book exam" for local AI. Instead of training or fine-tuning, the app chunks your files, embeds them with a local model, and retrieves the most relevant snippets to inject into the prompt.
+                        <strong>RAG (Retrieval-Augmented Generation)</strong> retrieves local project snippets to inject into LLM prompts without requiring extra GPU VRAM or cloud embeddings. Files are indexed using 25-line sliding windows and ranked via BM25 relevance.
                       </>
                     )}
                   </p>
+                </div>
+
+                {/* Configuration & Specs Card */}
+                <div className="p-4 rounded-xl bg-[#161b22] border border-[#30363d] space-y-3 shadow-sm">
+                  <div className="flex items-center space-x-2 text-xs font-semibold text-gray-200">
+                    <Database className="w-4 h-4 text-indigo-400" />
+                    <span>{currentLang === 'vi' ? 'Thông số kỹ thuật bộ máy RAG' : 'RAG Engine Specifications'}</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <div className="p-3 rounded-lg bg-[#0d1117] border border-[#30363d]/60 space-y-1">
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                        {currentLang === 'vi' ? 'Cơ chế tính điểm' : 'Scoring Algorithm'}
+                      </span>
+                      <p className="font-mono text-white text-xs font-semibold">
+                        BM25 + Exact Phrase Boost
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {currentLang === 'vi' ? 'Ưu tiên cụm từ chính xác và mật độ từ khóa' : 'Weighted term frequency & exact string matches'}
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-[#0d1117] border border-[#30363d]/60 space-y-1">
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                        {currentLang === 'vi' ? 'Kích thước phân đoạn' : 'Chunk Window'}
+                      </span>
+                      <p className="font-mono text-white text-xs font-semibold">
+                        25 lines (5 lines overlap)
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {currentLang === 'vi' ? 'Bảo toàn ngữ cảnh hàm và khối lệnh' : 'Preserves function & block context'}
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-[#0d1117] border border-[#30363d]/60 space-y-1">
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                        {currentLang === 'vi' ? 'Tài nguyên tiêu thụ' : 'Resource Impact'}
+                      </span>
+                      <p className="font-mono text-emerald-400 text-xs font-semibold">
+                        0 MB VRAM / Zero GPU Load
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {currentLang === 'vi' ? 'Chạy CPU đa luồng cực nhanh' : 'Instant in-memory execution'}
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-[#0d1117] border border-[#30363d]/60 space-y-1">
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                        {currentLang === 'vi' ? 'Bộ lọc an toàn' : 'Safety Filter'}
+                      </span>
+                      <p className="font-mono text-white text-xs font-semibold">
+                        Auto-ignore .git, node_modules, binaries
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {currentLang === 'vi' ? 'Bỏ qua file nén, ảnh, file > 500KB' : 'Ignores build artifacts and huge files'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Instructions Card */}
+                <div className="p-4 rounded-xl bg-[#161b22] border border-[#30363d] space-y-2 text-xs">
+                  <div className="flex items-center space-x-2 font-semibold text-gray-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>{currentLang === 'vi' ? 'Cách sử dụng trong ứng dụng' : 'How to Use'}</span>
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1.5 text-gray-300 text-[11px] leading-relaxed pl-1">
+                    <li>
+                      {currentLang === 'vi'
+                        ? 'Mở thanh công cụ bên phải (nhấp biểu tượng Tools ở góc phải trên).'
+                        : 'Open the right sidebar panel (click the Tools button top-right).'}
+                    </li>
+                    <li>
+                      {currentLang === 'vi'
+                        ? 'Chuyển sang tab "Tri thức RAG" (Offline Vector RAG).'
+                        : 'Switch to the "RAG" tab.'}
+                    </li>
+                    <li>
+                      {currentLang === 'vi'
+                        ? 'Nhập từ khóa, tên hàm hoặc vấn đề cần tìm rồi ấn "Tìm kiếm".'
+                        : 'Enter query keywords, symbol names or phrases and click search.'}
+                    </li>
+                    <li>
+                      {currentLang === 'vi'
+                        ? 'Nhấp "Ghim vào Chat" trên đoạn mã tìm thấy để tự động đưa vào ngữ cảnh của câu lệnh tiếp theo.'
+                        : 'Click "Pin to Chat" to inject relevant snippets into the LLM context.'}
+                    </li>
+                  </ol>
                 </div>
               </div>
             )}
@@ -2443,7 +2575,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                       <div>
                         <h3 className="font-bold text-sm text-white">LocalAI Desktop Studio</h3>
-                        <p className="text-xs text-gray-400 font-mono">v1.0.3 • Embedded llama.cpp & CUDA Engine</p>
+                        <p className="text-xs text-gray-400 font-mono">v1.0.4 • Embedded llama.cpp & CUDA Engine</p>
                       </div>
                     </div>
                     <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono font-semibold">

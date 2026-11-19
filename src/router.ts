@@ -159,16 +159,46 @@ export class MultiProviderRouter {
     };
     this.db.addMessage(userMsg);
 
-    // 3. Collect historical session messages with Dynamic Context Budget
-    const history = this.db.getMessages(sessionId);
-    const totalCtxLimit = provider.contextSize || 4096;
-    const maxTokensBudget = options.maxTokens || 2048;
-    // Target budget for historical turns: total context minus maxTokens generation space minus safety buffer (400)
-    const historyTokenBudget = Math.max(1000, totalCtxLimit - maxTokensBudget - 400);
+    // 3. Resolve context limits and token budget before preparing messages
+    const modelPath = this.findModelPath(provider.selectedModel);
+    const modelFilename = modelPath ? path.basename(modelPath) : (provider.selectedModel || '');
+    const savedConfig = this.db.getModelConfig(modelFilename);
+    const smartPreset = getSmartModelPreset(modelFilename);
+
+    const effectiveNgl = savedConfig?.gpuLayers ?? provider.gpuLayers ?? smartPreset.recommendedNgl;
+    const effectiveCtxSize = savedConfig?.contextSize ?? provider.contextSize ?? smartPreset.recommendedCtxSize;
+    const effectiveTemp = savedConfig?.temperature ?? options.temperature ?? smartPreset.temperature;
+    const effectiveTopP = savedConfig?.topP ?? options.topP ?? smartPreset.topP;
+    const effectiveRepeatPenalty = savedConfig?.repeatPenalty ?? options.repeatPenalty ?? smartPreset.repeatPenalty;
+
+    // Safe hardware clamping for 4GB VRAM cards (e.g. GTX 1650)
+    const isMediumOrLargeLocal = /7b|8b|9b|14b/i.test(modelFilename);
+    let safeNgl = effectiveNgl;
+    let safeCtxSize = effectiveCtxSize;
+    if (isMediumOrLargeLocal && (provider.id === 'local-llama' || provider.type === 'llama-server')) {
+      if (safeNgl > 24) safeNgl = 21;
+      if (safeCtxSize > 4096) safeCtxSize = 4096;
+    }
+
+    const totalCtxLimit = safeCtxSize || 4096;
+    const maxGenTokens = Math.min(1024, options.maxTokens || 1024);
+    // Hard ceiling for prompt tokens: total context minus generation space minus 200 safety buffer
+    const maxPromptBudget = Math.max(800, totalCtxLimit - maxGenTokens - 200);
 
     // Approximate token count: ~3.5 chars per token for mixed Vietnamese & code
     const estimateTokens = (text: string) => Math.ceil((text || '').length / 3.5);
 
+    // 1) Clamp systemPrompt if it takes more than 25% of maxPromptBudget
+    let effectiveSystemPrompt = options.systemPrompt || '';
+    const maxSystemTokens = Math.floor(maxPromptBudget * 0.25);
+    if (estimateTokens(effectiveSystemPrompt) > maxSystemTokens) {
+      const maxChars = Math.floor(maxSystemTokens * 3.5);
+      effectiveSystemPrompt = effectiveSystemPrompt.slice(0, maxChars) + '\n\n...[Chỉ dẫn hệ thống được tinh gọn]...';
+    }
+
+    // 2) History Reservation: Reserve up to 40% of maxPromptBudget for recent conversation history
+    // so that attached files / long prompts do not completely wipe out conversation memory!
+    const history = this.db.getMessages(sessionId);
     const cleanedHistory = history
       .slice(0, -1)
       .map((m) =>
@@ -185,38 +215,47 @@ export class MultiProviderRouter {
       )
       .filter((m) => m.content);
 
-    // Accumulate from most recent messages backwards within token budget
+    const minHistoryBudget = Math.min(1000, Math.floor(maxPromptBudget * 0.40));
     const budgetedMessages: ChatMessage[] = [];
-    let currentTokens = estimateTokens(finalPrompt) + estimateTokens(options.systemPrompt || '');
+    let historyTokens = 0;
 
+    // Accumulate the most recent messages up to minHistoryBudget
     for (let i = cleanedHistory.length - 1; i >= 0; i--) {
       const msg = cleanedHistory[i];
       const msgTokens = estimateTokens(msg.content);
-      if (currentTokens + msgTokens > historyTokenBudget && budgetedMessages.length >= 2) {
-        break; // Stop including older messages to prevent context overflow
+      if (historyTokens + msgTokens > minHistoryBudget && budgetedMessages.length >= 2) {
+        break; // Ensure at least 2 recent messages are kept
       }
       budgetedMessages.unshift(msg);
-      currentTokens += msgTokens;
+      historyTokens += msgTokens;
+      if (historyTokens >= minHistoryBudget) break;
     }
 
-    const apiMessages = [...budgetedMessages, { ...userMsg, content: finalPrompt }];
+    // 3) Allocate remaining budget for sanitizedFinalPrompt
+    const systemTokens = estimateTokens(effectiveSystemPrompt);
+    const remainingForPrompt = Math.max(300, maxPromptBudget - systemTokens - historyTokens);
+
+    let sanitizedFinalPrompt = finalPrompt;
+    if (estimateTokens(sanitizedFinalPrompt) > remainingForPrompt) {
+      const allowedChars = Math.floor(remainingForPrompt * 3.5);
+      sanitizedFinalPrompt = sanitizedFinalPrompt.slice(0, allowedChars) + '\n\n...[Nội dung tóm lược để vừa vặn bộ nhớ]...';
+    }
+
+    const apiMessages = [...budgetedMessages, { ...userMsg, content: sanitizedFinalPrompt }];
 
     // 4. Check & Auto-start local llama-server if selected
     if (provider.id === 'local-llama' || provider.type === 'llama-server') {
+      this.llamaManager.resetIdleTimer();
       const isHealthy = await this.llamaManager.isHealthy();
       const currentStatus = this.llamaManager.getStatus();
-      const modelPath = this.findModelPath(provider.selectedModel);
-      const modelFilename = modelPath ? path.basename(modelPath) : (provider.selectedModel || '');
 
-      // Resolve effective model config: custom user config in DB -> smart preset fallback
-      const savedConfig = this.db.getModelConfig(modelFilename);
-      const smartPreset = getSmartModelPreset(modelFilename);
-
-      const effectiveNgl = savedConfig?.gpuLayers ?? provider.gpuLayers ?? smartPreset.recommendedNgl;
-      const effectiveCtxSize = savedConfig?.contextSize ?? provider.contextSize ?? smartPreset.recommendedCtxSize;
-      const effectiveTemp = options.temperature ?? savedConfig?.temperature ?? smartPreset.temperature;
-      const effectiveTopP = options.topP ?? savedConfig?.topP ?? smartPreset.topP;
-      const effectiveRepeatPenalty = options.repeatPenalty ?? savedConfig?.repeatPenalty ?? smartPreset.repeatPenalty;
+      const isHardwareConfigChanged = !!(
+        currentStatus.isRunning &&
+        (currentStatus.ngl !== safeNgl ||
+         currentStatus.ctxSize !== safeCtxSize ||
+         currentStatus.threads !== (provider.cpuThreads ?? 4) ||
+         currentStatus.flashAttention !== (provider.flashAttention ?? true))
+      );
 
       const isDifferentModel = !!(
         currentStatus.isRunning &&
@@ -225,12 +264,14 @@ export class MultiProviderRouter {
         path.normalize(currentStatus.modelPath).toLowerCase() !== path.normalize(modelPath).toLowerCase()
       );
 
-      if (!isHealthy || isDifferentModel) {
+      if (!isHealthy || isDifferentModel || isHardwareConfigChanged) {
         const binaryPath = this.llamaManager.findBinaryPath();
         if (binaryPath) {
           if (modelPath) {
             const actionText = isDifferentModel
               ? `🔄 [LocalAI]: Đang chuyển đổi sang mô hình "${path.basename(modelPath)}" (khởi động lại GPU CUDA)...\n`
+              : isHardwareConfigChanged
+              ? `⚙️ [LocalAI]: Đang áp dụng cấu hình phần cứng mới (khởi động lại GPU CUDA)...\n`
               : '🚀 [LocalAI]: Đang tự động khởi động tiến trình llama-server (GPU CUDA) trên cổng 8080...\n';
             yield { content: actionText, done: false };
 
@@ -239,8 +280,8 @@ export class MultiProviderRouter {
               modelPath,
               port: 8080,
               host: '127.0.0.1',
-              ngl: effectiveNgl,
-              ctxSize: effectiveCtxSize,
+              ngl: safeNgl,
+              ctxSize: safeCtxSize,
               threads: provider.cpuThreads ?? 4,
               flashAttention: provider.flashAttention ?? true,
             });
@@ -346,5 +387,135 @@ export class MultiProviderRouter {
       createdAt: Date.now(),
     };
     this.db.addMessage(assistantMsg);
+  }
+
+  public async *executeStatelessStream(
+    prompt: string,
+    options: {
+      systemPrompt?: string;
+      temperature?: number;
+      topP?: number;
+      maxTokens?: number;
+      repeatPenalty?: number;
+      model?: string;
+    } = {}
+  ): AsyncGenerator<StreamChunk, void, unknown> {
+    const provider = this.getActiveProvider();
+
+    // 1. Check & Auto-start local llama-server if local provider
+    if (provider.id === 'local-llama' || provider.type === 'llama-server') {
+      this.llamaManager.resetIdleTimer();
+      const isHealthy = await this.llamaManager.isHealthy();
+      const currentStatus = this.llamaManager.getStatus();
+      const modelPath = this.findModelPath(provider.selectedModel);
+      const modelFilename = modelPath ? path.basename(modelPath) : (provider.selectedModel || '');
+
+      const savedConfig = this.db.getModelConfig(modelFilename);
+      const smartPreset = getSmartModelPreset(modelFilename);
+
+      const effectiveNgl = savedConfig?.gpuLayers ?? provider.gpuLayers ?? smartPreset.recommendedNgl;
+      const effectiveCtxSize = savedConfig?.contextSize ?? provider.contextSize ?? smartPreset.recommendedCtxSize;
+      const effectiveTemp = savedConfig?.temperature ?? options.temperature ?? smartPreset.temperature;
+      const effectiveTopP = savedConfig?.topP ?? options.topP ?? smartPreset.topP;
+      const effectiveRepeatPenalty = savedConfig?.repeatPenalty ?? options.repeatPenalty ?? smartPreset.repeatPenalty;
+
+      const isMediumOrLargeLocal = /7b|8b|9b|14b/i.test(modelFilename);
+      let safeNgl = effectiveNgl;
+      let safeCtxSize = effectiveCtxSize;
+      if (isMediumOrLargeLocal && (provider.id === 'local-llama' || provider.type === 'llama-server')) {
+        if (safeNgl > 24) safeNgl = 21;
+        if (safeCtxSize > 4096) safeCtxSize = 4096;
+      }
+
+      const isHardwareConfigChanged = !!(
+        currentStatus.isRunning &&
+        (currentStatus.ngl !== safeNgl ||
+         currentStatus.ctxSize !== safeCtxSize ||
+         currentStatus.threads !== (provider.cpuThreads ?? 4) ||
+         currentStatus.flashAttention !== (provider.flashAttention ?? true))
+      );
+
+      const isDifferentModel = !!(
+        currentStatus.isRunning &&
+        currentStatus.modelPath &&
+        modelPath &&
+        path.normalize(currentStatus.modelPath).toLowerCase() !== path.normalize(modelPath).toLowerCase()
+      );
+
+      if (!isHealthy || isDifferentModel || isHardwareConfigChanged) {
+        const binaryPath = this.llamaManager.findBinaryPath();
+        if (binaryPath && modelPath) {
+          await this.llamaManager.startServer({
+            binaryPath,
+            modelPath,
+            port: 8080,
+            host: '127.0.0.1',
+            ngl: safeNgl,
+            ctxSize: safeCtxSize,
+            threads: provider.cpuThreads ?? 4,
+            flashAttention: provider.flashAttention ?? true,
+          });
+        }
+      }
+
+      // Safe token budgeting for stateless stream
+      const estimateTokens = (text: string) => Math.ceil((text || '').length / 3.5);
+      const maxPromptBudget = Math.max(800, safeCtxSize - Math.min(1024, options.maxTokens || 1024) - 200);
+
+      let effectiveSystemPrompt = options.systemPrompt || '';
+      const maxSystemTokens = Math.floor(maxPromptBudget * 0.35);
+      if (estimateTokens(effectiveSystemPrompt) > maxSystemTokens) {
+        effectiveSystemPrompt = effectiveSystemPrompt.slice(0, Math.floor(maxSystemTokens * 3.5)) + '\n\n...[Rút gọn]...';
+      }
+
+      let sanitizedPrompt = prompt;
+      if (estimateTokens(sanitizedPrompt) + estimateTokens(effectiveSystemPrompt) > maxPromptBudget) {
+        const allowedChars = Math.floor(Math.max(300, maxPromptBudget - estimateTokens(effectiveSystemPrompt) - 50) * 3.5);
+        sanitizedPrompt = sanitizedPrompt.slice(0, allowedChars) + '\n\n...[Tóm lược]...';
+      }
+
+      const apiMessages: ChatMessage[] = [
+        {
+          id: `stateless-${Date.now()}`,
+          sessionId: '',
+          role: 'user',
+          content: sanitizedPrompt,
+          createdAt: Date.now(),
+        },
+      ];
+
+      for await (const chunk of ProviderClient.streamChat(provider, apiMessages, {
+        systemPrompt: effectiveSystemPrompt,
+        temperature: effectiveTemp,
+        topP: effectiveTopP,
+        maxTokens: options.maxTokens,
+        repeatPenalty: effectiveRepeatPenalty,
+        model: provider.selectedModel,
+      })) {
+        yield chunk;
+      }
+      return;
+    }
+
+    const apiMessages: ChatMessage[] = [
+      {
+        id: `stateless-${Date.now()}`,
+        sessionId: '',
+        role: 'user',
+        content: prompt,
+        createdAt: Date.now(),
+      },
+    ];
+
+    for await (const chunk of ProviderClient.streamChat(provider, apiMessages, {
+      systemPrompt: options.systemPrompt,
+      temperature: options.temperature,
+      topP: options.topP,
+      maxTokens: options.maxTokens,
+      repeatPenalty: options.repeatPenalty,
+      model: options.model,
+    })) {
+      yield chunk;
+    }
   }
 }

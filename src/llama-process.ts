@@ -13,6 +13,10 @@ export interface ProcessStatus {
   hasBinary: boolean;
   loadedLayers?: { gpu: number; total: number };
   recentLogs: string[];
+  ngl?: number;
+  ctxSize?: number;
+  threads?: number;
+  flashAttention?: boolean;
 }
 
 export class LlamaProcessManager {
@@ -21,6 +25,21 @@ export class LlamaProcessManager {
   private recentLogs: string[] = [];
   private maxLogLines = 100;
   private loadedLayers: { gpu: number; total: number } = { gpu: 0, total: 0 };
+  private idleTimer: NodeJS.Timeout | null = null;
+  private idleTimeoutMs = 20 * 60 * 1000; // 20 minutes auto-unload to free VRAM
+
+  public resetIdleTimer(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    if (this.childProcess) {
+      this.idleTimer = setTimeout(async () => {
+        this.appendLog('[Manager] Idle timeout (20 mins). Auto-unloading llama-server to free GPU VRAM.');
+        await this.stopServer();
+      }, this.idleTimeoutMs);
+    }
+  }
 
   /**
    * Spawn llama-server background process with configured CUDA + CPU flags
@@ -87,7 +106,11 @@ export class LlamaProcessManager {
       });
 
       // Poll /health endpoint for up to 90 seconds (allows heavy 7B-9B models to fully allocate RAM/VRAM)
-      return await this.waitForReady(config.host, config.port, 90000);
+      const ready = await this.waitForReady(config.host, config.port, 90000);
+      if (ready) {
+        this.resetIdleTimer();
+      }
+      return ready;
     } catch (err: any) {
       this.appendLog(`[Manager] Failed to launch server: ${err.message}`);
       return false;
@@ -98,6 +121,10 @@ export class LlamaProcessManager {
    * Graceful termination
    */
   public async stopServer(): Promise<void> {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
     if (!this.childProcess) return;
 
     this.appendLog('[Manager] Stopping llama-server...');
@@ -194,6 +221,10 @@ export class LlamaProcessManager {
       hasBinary: binary !== null,
       loadedLayers: this.loadedLayers,
       recentLogs: this.recentLogs.slice(-20),
+      ngl: this.currentConfig?.ngl,
+      ctxSize: this.currentConfig?.ctxSize,
+      threads: this.currentConfig?.threads,
+      flashAttention: this.currentConfig?.flashAttention,
     };
   }
 
