@@ -32,6 +32,7 @@ async function run() {
   console.log(`Sync test result: success = ${syncResult.success}, latency = ${syncResult.latencyMs}ms`);
 
   // Clean up
+  db.close();
   fs.rmSync(testDir, { recursive: true, force: true });
   console.log('✅ Phase 3 Multi-Provider Router verification PASSED!');
 }

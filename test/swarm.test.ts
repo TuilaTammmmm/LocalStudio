@@ -233,6 +233,7 @@ async function run() {
     if (missingPromptRes.status !== 400) {
       throw new Error(`Expected 400 for missing prompt, got ${missingPromptRes.status}`);
     }
+    db.close();
     console.log('[Server Endpoint]: /api/swarm/execute-stream 400 validation verified.');
 
     console.log('\n All SwarmEngine, HarnessRunner, and Rule Discovery tests PASSED!');

@@ -15,7 +15,6 @@ import { RightSidebar } from './components/RightSidebar.js';
 import { ChatView } from './components/ChatView.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import { NewWorkspaceModal } from './components/NewWorkspaceModal.js';
-import { type AutoRouteConfig, DEFAULT_AUTO_ROUTE_CONFIG } from '../auto-router.js';
 import { type Language, type Translations, dictionaries, getLanguage, setLanguage } from './i18n.js';
 
 export default function App() {
@@ -42,13 +41,22 @@ export default function App() {
   const [pinnedFiles, setPinnedFiles] = useState<string[]>([]);
 
   // UI state
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
-  const [autoRouteConfig, setAutoRouteConfig] = useState<AutoRouteConfig>(DEFAULT_AUTO_ROUTE_CONFIG);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(() => {
+    return localStorage.getItem('localai_right_sidebar_open') !== 'false';
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNewWorkspaceOpen, setIsNewWorkspaceOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleToggleRightSidebar = (forceVal?: boolean) => {
+    setIsRightSidebarOpen((prev) => {
+      const next = typeof forceVal === 'boolean' ? forceVal : !prev;
+      localStorage.setItem('localai_right_sidebar_open', String(next));
+      return next;
+    });
+  };
 
   // Agent Workshop Swarm State
   const [activeAgent, setActiveAgent] = useState<'coordinator' | 'coder' | 'critic' | 'harness' | null>(null);
@@ -77,11 +85,13 @@ export default function App() {
         setSkillFolders(skillsData.folders);
         setIsOnline(Boolean(hw || provData.providers.length > 0));
 
-        // If no workspaces, start in General Chat mode (No Project needed)
+        // Restore last active workspace from localStorage or default to first workspace
         if (wsList.length === 0) {
           setActiveWorkspace(null);
         } else {
-          setActiveWorkspace(wsList[0]);
+          const savedWsId = localStorage.getItem('localai_active_workspace_id');
+          const matchedWs = wsList.find((w) => w.id === savedWsId);
+          setActiveWorkspace(matchedWs || wsList[0]);
         }
       } catch (err) {
         console.error('Initialization error:', err);
@@ -166,11 +176,13 @@ export default function App() {
     const wsId = activeWorkspace?.id || 'no-project';
 
     if (activeWorkspace) {
+      localStorage.setItem('localai_active_workspace_id', activeWorkspace.id);
       setPinnedFiles(activeWorkspace.pinnedFiles || []);
       api.getWorkspaceTree(activeWorkspace.id).then((res) => {
         setFileTree(res.tree || []);
       }).catch(() => setFileTree([]));
     } else {
+      localStorage.removeItem('localai_active_workspace_id');
       setPinnedFiles([]);
       setFileTree([]);
     }
@@ -187,7 +199,9 @@ export default function App() {
     api.getSessions(wsId).then((sessList) => {
       setSessions(sessList);
       if (sessList.length > 0) {
-        setActiveSession(sessList[0]);
+        const savedSessId = localStorage.getItem(`localai_active_session_id_${wsId}`);
+        const matched = sessList.find((s) => s.id === savedSessId);
+        setActiveSession(matched || sessList[0]);
       } else {
         const defaultTitle = lang === 'vi' ? 'Cuộc trò chuyện mới' : 'New Chat';
         api.createSession(wsId, defaultTitle).then((newSess) => {
@@ -202,14 +216,29 @@ export default function App() {
     };
   }, [activeWorkspace?.id, lang]);
 
-  // 3. When active session changes: Load messages
+  // Prevent default drag & drop navigation across entire window
+  useEffect(() => {
+    const preventDrag = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('dragover', preventDrag);
+    window.addEventListener('drop', preventDrag);
+    return () => {
+      window.removeEventListener('dragover', preventDrag);
+      window.removeEventListener('drop', preventDrag);
+    };
+  }, []);
+
+  // 3. When active session changes: Load messages and remember active session
   useEffect(() => {
     if (!activeSession) {
       setMessages([]);
       return;
     }
+    const wsId = activeWorkspace?.id || 'no-project';
+    localStorage.setItem(`localai_active_session_id_${wsId}`, activeSession.id);
     api.getMessages(activeSession.id).then(setMessages).catch(() => setMessages([]));
-  }, [activeSession?.id]);
+  }, [activeSession?.id, activeWorkspace?.id]);
 
   // Handler: Send Message & SSE Streaming
   const handleSendMessage = async (promptText: string, hasImage = false) => {
@@ -225,24 +254,7 @@ export default function App() {
     setMessages((prev) => [...prev, userTempMsg]);
 
     const assistantTempId = `stream-${Date.now()}`;
-    let activeModelName = activeProvider?.selectedModel;
-    if (autoRouteConfig.enabled) {
-      try {
-        const routeRes = await fetch(getApiUrl('/api/auto-route/classify'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: promptText,
-            hasImageAttachment: hasImage,
-            config: autoRouteConfig,
-          }),
-        });
-        const routeData = await routeRes.json();
-        if (routeData.targetModel) {
-          activeModelName = routeData.targetModel;
-        }
-      } catch {}
-    }
+    const activeModelName = activeProvider?.selectedModel;
 
     const isSwarm = promptText.trim().startsWith('/swarm');
     const cleanPrompt = isSwarm
@@ -376,6 +388,15 @@ export default function App() {
                 if (chunk.passed) {
                   setActiveAgent(null);
                 }
+              }
+
+              // Token Breakdown reporting
+              if (chunk.tokenBreakdown) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantTempId ? { ...m, tokenBreakdown: chunk.tokenBreakdown } : m
+                  )
+                );
               }
 
               // Custom Skill Activation notification
@@ -534,7 +555,7 @@ export default function App() {
         handleNewChat();
       } else if (isCtrlOrCmd && (e.key === 'b' || e.key === 'B')) {
         e.preventDefault();
-        setIsRightSidebarOpen((prev) => !prev);
+        handleToggleRightSidebar();
       } else if (isCtrlOrCmd && (e.key === 'o' || e.key === 'O')) {
         e.preventDefault();
         setIsNewWorkspaceOpen(true);
@@ -562,14 +583,11 @@ export default function App() {
         activeWorkspace={activeWorkspace}
         hardwareStats={hardwareStats}
         isRightSidebarOpen={isRightSidebarOpen}
-        autoRouteEnabled={autoRouteConfig.enabled}
         isOnline={isOnline}
+        isStreaming={isStreaming}
         lang={lang}
         t={t}
         onToggleLanguage={handleToggleLanguage}
-        onToggleAutoRoute={() =>
-          setAutoRouteConfig((prev) => ({ ...prev, enabled: !prev.enabled }))
-        }
         onSwitchProvider={async (id) => {
           const switched = await api.setActiveProvider(id);
           setActiveProvider(switched);
@@ -580,7 +598,7 @@ export default function App() {
             api.saveProvider(updated).then(setActiveProvider);
           }
         }}
-        onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+        onToggleRightSidebar={() => handleToggleRightSidebar()}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
@@ -622,17 +640,11 @@ export default function App() {
             setActiveProvider(switched);
           }}
           activeModelName={activeProvider?.selectedModel}
-          isAutoRoute={autoRouteConfig.enabled}
           availableModels={activeProvider?.models || []}
-          onSelectModel={(modelName, isAuto) => {
-            if (isAuto) {
-              setAutoRouteConfig((prev) => ({ ...prev, enabled: true }));
-            } else {
-              setAutoRouteConfig((prev) => ({ ...prev, enabled: false }));
-              if (activeProvider) {
-                const updated = { ...activeProvider, selectedModel: modelName };
-                api.saveProvider(updated).then(setActiveProvider);
-              }
+          onSelectModel={(modelName) => {
+            if (activeProvider) {
+              const updated = { ...activeProvider, selectedModel: modelName };
+              api.saveProvider(updated).then(setActiveProvider);
             }
           }}
           onSendMessage={handleSendMessage}
@@ -642,17 +654,6 @@ export default function App() {
           onRemovePinnedFile={handleTogglePinFile}
           onAttachFile={(filePath) => {
             setPinnedFiles((prev) => (prev.includes(filePath) ? prev : [...prev, filePath]));
-          }}
-          activeAgent={activeAgent}
-          agentThoughts={agentThoughts}
-          harnessLogs={harnessLogs}
-          isWorkshopExpanded={isWorkshopExpanded}
-          onToggleWorkshopExpand={() => {
-            setIsWorkshopExpanded((prev) => {
-              const next = !prev;
-              localStorage.setItem('localai_workshop_expanded', String(next));
-              return next;
-            });
           }}
         />
 
@@ -664,7 +665,7 @@ export default function App() {
           isOpen={isRightSidebarOpen}
           lang={lang}
           t={t}
-          onToggle={() => setIsRightSidebarOpen(false)}
+          onToggle={() => handleToggleRightSidebar(false)}
           onTogglePinFile={handleTogglePinFile}
           onUpdateSystemPrompt={(prompt) => {
             if (activeWorkspace) {
@@ -692,11 +693,9 @@ export default function App() {
         skillFolders={skillFolders}
         providers={providers}
         hardwareStats={hardwareStats}
-        autoRouteConfig={autoRouteConfig}
         lang={lang}
         t={t}
         onToggleLanguage={handleToggleLanguage}
-        onUpdateAutoRouteConfig={setAutoRouteConfig}
         onAddSkillFolder={async (folder) => {
           const res = await api.addSkillFolder(folder);
           setSkillFolders(res.folders);

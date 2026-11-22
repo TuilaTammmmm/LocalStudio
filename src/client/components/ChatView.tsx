@@ -4,7 +4,6 @@ import type { FileNode } from '../../workspace-fs.js';
 import { type Language, type Translations, dictionaries, getLanguage } from '../i18n.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatInput } from './ChatInput.js';
-import { AgentWorkshop, type AgentRole } from './AgentWorkshop.js';
 import {
   Sparkles,
   MessageSquare,
@@ -25,19 +24,13 @@ interface ChatViewProps {
   activeProvider?: ProviderConfig | null;
   onSwitchProvider?: (providerId: string) => void;
   activeModelName?: string;
-  isAutoRoute?: boolean;
   availableModels?: string[];
-  onSelectModel?: (name: string, isAuto?: boolean) => void;
+  onSelectModel?: (name: string) => void;
   onSendMessage: (text: string, hasImage?: boolean) => void;
   isStreaming: boolean;
   onStopStreaming: () => void;
   onRemovePinnedFile: (file: string) => void;
   onAttachFile?: (file: string) => void;
-  activeAgent?: AgentRole | null;
-  agentThoughts?: Record<string, string>;
-  harnessLogs?: string;
-  isWorkshopExpanded?: boolean;
-  onToggleWorkshopExpand?: () => void;
   lang?: Language;
   t?: Translations;
   onEditPrompt?: (prompt: string) => void;
@@ -55,7 +48,6 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
   activeProvider = null,
   onSwitchProvider,
   activeModelName = 'Qwen2.5-3B-Instruct',
-  isAutoRoute = true,
   availableModels = [],
   onSelectModel,
   onSendMessage,
@@ -63,27 +55,41 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
   onStopStreaming,
   onRemovePinnedFile,
   onAttachFile,
-  activeAgent = null,
-  agentThoughts = {},
-  harnessLogs = '',
-  isWorkshopExpanded,
-  onToggleWorkshopExpand,
   lang,
   t: propT,
   onEditPrompt,
   onRegenerateMessage,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isUserScrolledUp = useRef(false);
   const currentLang = lang || getLanguage();
   const tr = propT || dictionaries[currentLang];
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const el = scrollRef.current;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Only lock to bottom if user is within 120px of bottom; if user scrolled up, keep their position
+    isUserScrolledUp.current = distanceFromBottom > 120;
+  };
 
   useEffect(() => {
     if (!scrollRef.current) return;
     const el = scrollRef.current;
-    const id = requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
-    return () => cancelAnimationFrame(id);
+    const lastMessage = messages[messages.length - 1];
+
+    // If user just sent a message, snap to bottom immediately
+    if (lastMessage?.role === 'user') {
+      isUserScrolledUp.current = false;
+    }
+
+    // Only auto-scroll down if user is NOT scrolling up to read previous content
+    if (!isUserScrolledUp.current) {
+      const id = requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+      return () => cancelAnimationFrame(id);
+    }
   }, [messages]);
 
   const [isDragOverChat, setIsDragOverChat] = React.useState(false);
@@ -109,9 +115,14 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
         const f = e.dataTransfer.files[i];
-        const p = (f as any).path || f.name;
-        if (p && onAttachFile) {
-          onAttachFile(p);
+        if (f.type.startsWith('image/')) {
+          // Dispatch image to ChatInput for multimodal vision models
+          window.dispatchEvent(new CustomEvent('localai:attach-image', { detail: { file: f } }));
+        } else {
+          const p = (f as any).path || f.name;
+          if (p && onAttachFile) {
+            onAttachFile(p);
+          }
         }
       }
       return;
@@ -168,7 +179,7 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
       )}
 
       {/* Messages Scroll Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="min-h-full flex flex-col items-center justify-center p-8 max-w-2xl mx-auto space-y-4 animate-fade-in text-center">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500/20 to-indigo-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 shadow-xl shadow-sky-500/10">
@@ -201,14 +212,6 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
       {/* Floating Modern Composer Bar */}
       <div className="p-4 pb-6 pt-2 bg-gradient-to-t from-[#0d1117] via-[#0d1117]/95 to-transparent">
         <div className="max-w-4xl mx-auto w-full">
-          <AgentWorkshop
-            activeAgent={activeAgent}
-            thoughts={agentThoughts}
-            harnessLogs={harnessLogs}
-            isExpanded={isWorkshopExpanded}
-            onToggleExpand={onToggleWorkshopExpand}
-            lang={currentLang}
-          />
           <ChatInput
             onSendMessage={onSendMessage}
             isStreaming={isStreaming}
@@ -222,7 +225,6 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
             activeProvider={activeProvider}
             onSwitchProvider={onSwitchProvider}
             activeModelName={activeModelName}
-            isAutoRoute={isAutoRoute}
             availableModels={availableModels}
             onSelectModel={onSelectModel}
             lang={currentLang}

@@ -66,6 +66,7 @@ llama-server.exe
 # Token Caches & Code Graphs
 # ==========================================
 .codegraph/*.json
+.codegraph/graph.html
 .codegraph/architecture_map.md
 .atomic/
 

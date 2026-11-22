@@ -17,7 +17,6 @@ import {
   Eye,
   Globe,
   ChevronDown,
-  Compass,
   Brain,
   Code2,
   Check,
@@ -37,9 +36,8 @@ interface ChatInputProps {
   activeProvider?: ProviderConfig | null;
   onSwitchProvider?: (providerId: string) => void;
   activeModelName?: string;
-  isAutoRoute?: boolean;
   availableModels?: string[];
-  onSelectModel?: (name: string, isAuto?: boolean) => void;
+  onSelectModel?: (name: string) => void;
   lang?: Language;
   t?: Translations;
 }
@@ -57,7 +55,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   activeProvider = null,
   onSwitchProvider,
   activeModelName = 'Qwen2.5-3B-Instruct',
-  isAutoRoute = true,
   availableModels = [],
   onSelectModel,
   lang,
@@ -103,6 +100,32 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     window.addEventListener('localai:edit-prompt', handleEditPromptEvent);
     return () => window.removeEventListener('localai:edit-prompt', handleEditPromptEvent);
   }, []);
+
+  // Listen for image drop from ChatView or external sources
+  useEffect(() => {
+    const handleAttachImage = (e: any) => {
+      const file = e.detail?.file;
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setAttachedImage({
+          name: file.name,
+          dataUrl: event.target?.result as string,
+        });
+      };
+      reader.readAsDataURL(file);
+    };
+    window.addEventListener('localai:attach-image', handleAttachImage);
+    return () => window.removeEventListener('localai:attach-image', handleAttachImage);
+  }, []);
+
+  // Auto-grow textarea dynamically according to typed or pasted content
+  useEffect(() => {
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = 'auto';
+    const computed = Math.min(240, Math.max(44, textareaRef.current.scrollHeight));
+    textareaRef.current.style.height = `${computed}px`;
+  }, [text]);
 
   useEffect(() => {
     if (!isResizingInput) return;
@@ -160,22 +183,31 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       }
     }
 
-    // 2. Dropped from OS Desktop / Explorer
+    // 2. Dropped from OS Desktop / Explorer (Multiple files & images support)
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          setAttachedImage({
-            name: file.name,
-            dataUrl: event.target?.result as string,
-          });
-        };
-        reader.readAsDataURL(file);
-      } else {
-        const textContent = await file.text();
-        const snippet = `\`\`\`${file.name}\n${textContent.slice(0, 4000)}\n\`\`\`\n`;
-        setText((prev) => (prev ? `${prev}\n${snippet}` : snippet));
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const file = e.dataTransfer.files[i];
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            setAttachedImage({
+              name: file.name,
+              dataUrl: event.target?.result as string,
+            });
+          };
+          reader.readAsDataURL(file);
+        } else {
+          const fullPath = (file as any).path;
+          if (fullPath && onAttachFile) {
+            onAttachFile(fullPath);
+          } else {
+            try {
+              const textContent = await file.text();
+              const snippet = `\`\`\`${file.name}\n${textContent.slice(0, 4000)}\n\`\`\`\n`;
+              setText((prev) => (prev ? `${prev}\n${snippet}` : snippet));
+            } catch {}
+          }
+        }
       }
     }
   };
@@ -293,6 +325,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
+      // Prevent premature sending while user is typing in Vietnamese IME / CJK composition
+      if (e.nativeEvent.isComposing) return;
       e.preventDefault();
       handleSend();
     }
@@ -512,7 +546,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/25 text-[11px] font-mono shrink-0 shadow-sm"
               >
                 <FileText className="w-3 h-3" />
-                <span className="truncate max-w-[140px]">{file.split('/').pop()}</span>
+                <span className="truncate max-w-[140px]">{file.split(/[/\\]/).pop()}</span>
                 <button
                   onClick={() => onRemovePinnedFile(file)}
                   className="hover:text-red-400 ml-0.5 font-bold"
@@ -524,7 +558,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         )}
 
-        {/* Text Input with dynamic height */}
+        {/* Text Input with dynamic auto-growing height */}
         <textarea
           ref={textareaRef}
           value={text}
@@ -532,7 +566,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={attachedImage ? tr.visionPlaceholder : tr.askPlaceholder}
-          style={{ height: `${composerHeight}px` }}
+          style={{ minHeight: '44px', maxHeight: `${Math.max(composerHeight, 240)}px` }}
           className="w-full bg-transparent text-gray-100 placeholder-gray-500 text-sm focus:outline-none resize-none overflow-y-auto leading-relaxed px-1"
         />
 
@@ -680,7 +714,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </div>
             )}
 
-            {/* 2. Model / Auto-Route Selector Pill */}
+            {/* 2. Model Selector Pill */}
             {onSelectModel && (
               <div className="relative z-50">
                 <button
@@ -689,20 +723,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     setShowModelMenu(!showModelMenu);
                     setShowProviderMenu(false);
                   }}
-                  className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-all ${
-                    isAutoRoute
-                      ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 ring-1 ring-amber-500/20 shadow-sm'
-                      : 'bg-[#0d1117] hover:bg-[#21262d] border-[#30363d] text-gray-200'
-                  }`}
-                  title={isAutoRoute ? 'Auto-Routing Active' : `Active Model: ${activeModelName}`}
+                  className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-all bg-[#0d1117] hover:bg-[#21262d] border-[#30363d] text-gray-200"
+                  title={`Active Model: ${activeModelName}`}
                 >
-                  {isAutoRoute ? (
-                    <Compass className="w-3.5 h-3.5 text-amber-400 animate-spin-slow shrink-0" />
-                  ) : (
-                    <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                  )}
+                  <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                   <span className="font-semibold text-[11px] truncate max-w-[130px]">
-                    {isAutoRoute ? '🔮 Auto-Route' : (activeModelName?.replace(/\.gguf$/i, '').split('-')[0] || activeModelName || 'Model')}
+                    {activeModelName?.replace(/\.gguf$/i, '').split('-')[0] || activeModelName || 'Model'}
                   </span>
                   <ChevronDown className="w-3 h-3 text-gray-500 shrink-0" />
                 </button>
@@ -722,27 +748,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     </div>
 
                     <div className="max-h-56 overflow-y-auto space-y-1 pt-1">
-                      {/* Auto Route Option (only shown if Auto-Route is active) */}
-                      {isAutoRoute && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectModel('auto', true);
-                            setShowModelMenu(false);
-                          }}
-                          className="w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/40"
-                        >
-                          <div className="flex items-center space-x-2">
-                            <Compass className="w-3.5 h-3.5 text-amber-400" />
-                            <div>
-                              <div className="font-semibold">{tr.autoRoute}</div>
-                              <div className="text-[10px] text-gray-400 leading-tight">{tr.autoRouteDesc}</div>
-                            </div>
-                          </div>
-                          <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        </button>
-                      )}
-
                       {/* Header for models of selected provider */}
                       <div className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between border-t border-[#30363d]/50 pt-1.5 mt-1">
                         <span className="truncate max-w-[200px]">{activeProvider?.name.split('(')[0].trim() || 'Provider'}</span>
@@ -757,13 +762,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       {(activeProvider?.models || [])
                         .filter((m) => !modelSearch || m.toLowerCase().includes(modelSearch.toLowerCase()))
                         .map((m) => {
-                          const isCur = !isAutoRoute && activeModelName === m;
+                          const isCur = activeModelName === m;
                           return (
                             <button
                               key={m}
                               type="button"
                               onClick={() => {
-                                onSelectModel(m, false);
+                                onSelectModel(m);
                                 setShowModelMenu(false);
                               }}
                               className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors ${
@@ -795,7 +800,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            onSelectModel(modelSearch.trim(), false);
+                            onSelectModel(modelSearch.trim());
                             setShowModelMenu(false);
                           }}
                           className="w-full p-2 text-left text-xs text-sky-400 hover:bg-[#21262d] rounded-lg border border-dashed border-sky-500/30 mt-1"

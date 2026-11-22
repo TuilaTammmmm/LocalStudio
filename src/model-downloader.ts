@@ -72,6 +72,47 @@ export class ModelDownloaderService {
   }
 
   /**
+   * Automatically fetch tokenizer.json from Hugging Face repository and save alongside .gguf
+   */
+  public static async downloadTokenizerForModel(downloadUrl: string, destGgufPath: string): Promise<string | null> {
+    try {
+      const match = downloadUrl.match(/huggingface\.co\/([^/]+\/[^/]+)/i);
+      if (!match) return null;
+      const repo = match[1];
+      const dir = path.dirname(destGgufPath);
+      const baseName = path.basename(destGgufPath).replace(/\.gguf$/i, '');
+      const targetFile = path.join(dir, `${baseName}.tokenizer.json`);
+
+      // Try multiple URL variants (GGUF quant repo, or base model repo without -GGUF)
+      const candidateUrls = [
+        `https://huggingface.co/${repo}/resolve/main/tokenizer.json`,
+        `https://huggingface.co/${repo.replace(/-GGUF$/i, '')}/resolve/main/tokenizer.json`,
+        `https://huggingface.co/${repo.replace(/-gguf$/i, '')}/resolve/main/tokenizer.json`,
+      ];
+
+      for (const url of candidateUrls) {
+        try {
+          const res = await fetch(url, {
+            headers: { 'User-Agent': 'LocalAI-Studio/1.0' },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (res.ok) {
+            const text = await res.text();
+            if (text && text.trim().startsWith('{') && text.includes('"version"')) {
+              fs.writeFileSync(targetFile, text, 'utf-8');
+              console.log(`[Downloader] Bundled tokenizer.json for Rust Tokenizer: ${targetFile}`);
+              return targetFile;
+            }
+          }
+        } catch {}
+      }
+    } catch (err) {
+      console.warn('[Downloader] Could not download tokenizer.json:', err);
+    }
+    return null;
+  }
+
+  /**
    * Cancel an in-progress download task
    */
   public static cancelDownload(modelId: string): boolean {
@@ -228,6 +269,11 @@ export class ModelDownloaderService {
           try { fs.unlinkSync(destPath); } catch {}
         }
         fs.renameSync(partPath, destPath);
+
+        // Automatically fetch and bundle tokenizer.json alongside .gguf for Rust Tokenizer
+        if (downloadUrl) {
+          await ModelDownloaderService.downloadTokenizerForModel(downloadUrl, destPath);
+        }
 
         task.status = 'completed';
         task.progressPercent = 100;

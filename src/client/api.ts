@@ -26,6 +26,30 @@ export function getApiUrl(endpoint: string): string {
 export const API_BASE = getApiUrl('/api');
 
 export const api = {
+  // Engine Runtime Management
+  async getEngineStatus(): Promise<{
+    installed: boolean;
+    binaryPath: string | null;
+    platform: string;
+    arch: string;
+    recommendedRuntimeId: string;
+    downloadInProgress: boolean;
+    downloadProgress: number;
+    statusMessage?: string;
+  }> {
+    const res = await fetch(`${API_BASE}/engine/status`);
+    return res.json();
+  },
+
+  async installEngine(runtimeId?: string): Promise<{ success: boolean; binaryPath?: string; error?: string }> {
+    const res = await fetch(`${API_BASE}/engine/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runtimeId }),
+    });
+    return res.json();
+  },
+
   // Hardware
   async getHardware(): Promise<{
     stats: HardwareStats;
@@ -101,6 +125,7 @@ export const api = {
     workspaceId: string;
     query: string;
     count: number;
+    engine?: 'rust' | 'ts';
     results: RAGSearchResult[];
   }> {
     const res = await fetch(

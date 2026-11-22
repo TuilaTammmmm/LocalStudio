@@ -32,6 +32,20 @@ export interface ChatMessage {
   tokensPerSec?: number; // LM Studio style inference speed
   timeToFirstTokenMs?: number; // Time to First Token
   modelUsed?: string;
+  tokenBreakdown?: {
+    systemPromptTokens: number;
+    rulesTokens: number;
+    skillsTokens: number;
+    workspaceTokens: number;
+    contextFilesTokens: number;
+    historyTokens: number;
+    userPromptTokens: number;
+    totalPromptTokens: number;
+    contextLimit: number;
+    maxGenTokens: number;
+    remainingTokens: number;
+    engine?: 'rust' | 'llama-server' | 'heuristic';
+  };
   createdAt: number;
 }
 
@@ -103,5 +117,6 @@ export interface ModelPresetConfig {
 
 export interface AppSettings {
   modelsDir?: string;
+  customModelDirs?: string[];
   modelConfigs?: Record<string, ModelPresetConfig>;
 }

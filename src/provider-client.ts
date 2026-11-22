@@ -9,10 +9,10 @@ export interface StreamChunk {
 
 export class ProviderClient {
   /**
-   * Fetch available models from an OpenAI-compatible endpoint
+   * Fetch available models from an OpenAI-compatible endpoint or Ollama
    */
   public static async fetchModels(provider: ProviderConfig): Promise<string[]> {
-    const url = `${provider.baseUrl.replace(/\/+$/, '')}/models`;
+    const cleanBase = provider.baseUrl.replace(/\/+$/, '');
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...provider.customHeaders,
@@ -22,22 +22,44 @@ export class ProviderClient {
       headers['Authorization'] = `Bearer ${provider.apiKey}`;
     }
 
-    try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const tryFetchUrl = async (targetUrl: string): Promise<string[] | null> => {
+      try {
+        const res = await fetch(targetUrl, { headers, signal: AbortSignal.timeout(6000) });
+        if (!res.ok) return null;
+        const data: any = await res.json();
+        if (Array.isArray(data.data)) {
+          return data.data.map((m: any) => m.id || m.name).filter(Boolean);
+        }
+        if (Array.isArray(data.models)) {
+          return data.models.map((m: any) => m.name || m.id || m.model).filter(Boolean);
+        }
+        if (Array.isArray(data)) {
+          return data.map((m: any) => (typeof m === 'string' ? m : m.id || m.name)).filter(Boolean);
+        }
+        return null;
+      } catch {
+        return null;
       }
-      const data: any = await res.json();
-      if (Array.isArray(data.data)) {
-        return data.data.map((m: any) => m.id || m.name);
-      }
-      if (Array.isArray(data.models)) {
-        return data.models.map((m: any) => m.name || m.id);
-      }
-      return [];
-    } catch (err: any) {
-      throw new Error(`Failed to fetch models from ${provider.name}: ${err.message}`);
+    };
+
+    // 1. Try direct /models endpoint
+    let models = await tryFetchUrl(`${cleanBase}/models`);
+    if (models && models.length > 0) return models;
+
+    // 2. Try with /v1/models if not already ending with /v1
+    if (!cleanBase.endsWith('/v1')) {
+      models = await tryFetchUrl(`${cleanBase}/v1/models`);
+      if (models && models.length > 0) return models;
     }
+
+    // 3. Try Ollama native /api/tags
+    const ollamaBase = cleanBase.replace(/\/v1\/?$/, '');
+    models = await tryFetchUrl(`${ollamaBase}/api/tags`);
+    if (models && models.length > 0) return models;
+
+    throw new Error(
+      `Không thể đọc danh sách model từ ${provider.name}. Vui lòng kiểm tra lại URL endpoint (${provider.baseUrl}) hoặc Khóa API.`
+    );
   }
 
   /**

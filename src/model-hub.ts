@@ -22,6 +22,8 @@ export interface ModelCompatibility {
   estimatedRamMb: number;
   estimatedSpeed: string;
   description: string;
+  isSufficient?: boolean;
+  ramStatus?: string;
 }
 
 export const CURATED_MODELS: ModelHubItem[] = [
@@ -267,11 +269,13 @@ export class ModelHubService {
     model: ModelHubItem,
     vramTotalMb = 4096,
     vramFreeMb = 3600,
-    chosenGpuLayers?: number
+    chosenGpuLayers?: number,
+    ramTotalMb?: number,
+    ramFreeMb?: number
   ): ModelCompatibility {
     const sizeMb = Math.round(model.fileSizeBytes / (1024 * 1024));
     const totalLayers = model.totalLayers || 32;
-    const ngl = chosenGpuLayers !== undefined ? chosenGpuLayers : (sizeMb <= 2600 ? totalLayers : 21);
+    const ngl = chosenGpuLayers !== undefined ? Math.min(totalLayers, Math.max(0, chosenGpuLayers)) : (sizeMb <= 2600 ? totalLayers : 21);
 
     // Calculate approximate VRAM consumption based on offloaded layers
     const layerMb = (sizeMb * 0.9) / totalLayers;
@@ -279,17 +283,32 @@ export class ModelHubService {
     const estimatedVramMb = Math.round(ngl === 0 ? 0 : (ngl * layerMb) + kvCacheMb);
     const estimatedRamMb = Math.round(Math.max(300, sizeMb - (ngl * layerMb) + 300));
 
+    // Check RAM sufficiency
+    const availableRam = (ramFreeMb && ramFreeMb > 0) ? ramFreeMb : (ramTotalMb ? ramTotalMb - 1200 : 8000);
+    const isRamSufficient = estimatedRamMb <= availableRam;
+
+    let ramStatus = '';
+    if (isRamSufficient) {
+      ramStatus = `Đủ RAM (Cần ~${estimatedRamMb} MB, hệ thống còn trống ~${ramFreeMb || availableRam} MB).`;
+    } else if (ramTotalMb && estimatedRamMb > ramTotalMb) {
+      ramStatus = `KHÔNG ĐỦ RAM! Cần ~${estimatedRamMb} MB, tổng RAM máy chỉ có ${ramTotalMb} MB. Nguy cơ tràn bộ nhớ OOM!`;
+    } else {
+      ramStatus = `RAM hạn chế: Cần ~${estimatedRamMb} MB, RAM trống chỉ còn ~${ramFreeMb || 0} MB (có thể tráo swap).`;
+    }
+
     // Case 1: Exceeds total available VRAM -> Risk of OOM
     if (estimatedVramMb > vramTotalMb) {
       return {
         status: 'exceeds',
-        statusLabel: 'Exceeds VRAM (OOM Risk)',
+        statusLabel: 'Tràn VRAM (Nguy cơ Crash OOM)',
         badgeColor: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
-        recommendedNgl: Math.floor((vramTotalMb - 800) / layerMb),
+        recommendedNgl: Math.max(0, Math.floor((vramTotalMb - 800) / layerMb)),
         estimatedVramMb,
         estimatedRamMb,
-        estimatedSpeed: 'Slow (Pagefile)',
-        description: `Cần ~${estimatedVramMb} MB VRAM nhưng GPU chỉ có ${vramTotalMb} MB. Hãy hạ số GPU layers (-ngl) xuống để tránh tràn bộ nhớ.`,
+        estimatedSpeed: 'Rất chậm (Pagefile)',
+        description: `Cần ~${estimatedVramMb} MB VRAM nhưng GPU chỉ có ${vramTotalMb} MB (Thiếu ${estimatedVramMb - vramTotalMb} MB). Hãy hạ số GPU layers (-ngl) xuống để tránh văng ứng dụng.`,
+        isSufficient: false,
+        ramStatus,
       };
     }
 
@@ -297,13 +316,15 @@ export class ModelHubService {
     if (ngl === 0) {
       return {
         status: 'cpu-only',
-        statusLabel: 'CPU Only (0 Layers GPU)',
-        badgeColor: 'text-gray-400 bg-gray-500/10 border-gray-500/30',
+        statusLabel: isRamSufficient ? 'CPU Only (Đủ RAM)' : 'CPU Only (Thiếu RAM)',
+        badgeColor: isRamSufficient ? 'text-gray-400 bg-gray-500/10 border-gray-500/30' : 'text-rose-400 bg-rose-500/10 border-rose-500/30',
         recommendedNgl: 0,
         estimatedVramMb: 0,
         estimatedRamMb: sizeMb + 400,
         estimatedSpeed: '4 - 7 tokens/s',
-        description: 'Chạy hoàn toàn trên CPU và RAM hệ thống, không dùng tài nguyên GPU.',
+        description: `Chạy hoàn toàn trên CPU và RAM hệ thống, không dùng GPU. ${ramStatus}`,
+        isSufficient: isRamSufficient,
+        ramStatus,
       };
     }
 
@@ -311,27 +332,36 @@ export class ModelHubService {
     if (ngl >= totalLayers) {
       return {
         status: 'full-gpu',
-        statusLabel: 'Full GPU Offload (100% VRAM)',
+        statusLabel: '100% GPU (Tốc độ tối đa)',
         badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
         recommendedNgl: totalLayers,
         estimatedVramMb,
         estimatedRamMb: 400,
         estimatedSpeed: '45 - 65 tokens/s',
-        description: `Tất cả ${totalLayers} layers nằm trọn trong VRAM card GTX 1650. Tốc độ cực nhanh, mượt mà và không tốn RAM.`,
+        description: `Tất cả ${totalLayers} layers nằm trọn trong VRAM GPU (~${estimatedVramMb} MB / ${vramTotalMb} MB). Tốc độ cực nhanh và gần như không tốn RAM.`,
+        isSufficient: true,
+        ramStatus: 'Đủ RAM (chỉ cần ~400 MB phụ trợ)',
       };
     }
 
-    // Case 4: Hybrid GPU + CPU
+    // Case 4: Hybrid GPU + CPU (Kiểm tra rõ ràng có ĐỦ hay KHÔNG)
     const cpuLayers = totalLayers - ngl;
+    const isOverallSufficient = isRamSufficient && estimatedVramMb <= vramTotalMb;
     return {
       status: 'hybrid',
-      statusLabel: `Hybrid: GPU (${ngl}) + CPU (${cpuLayers})`,
-      badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+      statusLabel: isOverallSufficient
+        ? `Hybrid: Đủ RAM & VRAM (${ngl} GPU + ${cpuLayers} CPU)`
+        : `Hybrid: Thiếu RAM (${ngl} GPU + ${cpuLayers} CPU)`,
+      badgeColor: isOverallSufficient
+        ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+        : 'text-rose-400 bg-rose-500/10 border-rose-500/30',
       recommendedNgl: ngl,
       estimatedVramMb,
       estimatedRamMb,
-      estimatedSpeed: '12 - 18 tokens/s',
-      description: `Offload ${ngl}/${totalLayers} layers vào CUDA GPU (~${estimatedVramMb} MB) và ${cpuLayers} layers còn lại trên CPU+RAM với Flash Attention.`,
+      estimatedSpeed: isOverallSufficient ? '12 - 25 tokens/s' : '4 - 10 tokens/s (Chậm)',
+      description: `Offload ${ngl}/${totalLayers} layers vào GPU CUDA (~${estimatedVramMb} MB / ${vramTotalMb} MB) và ${cpuLayers} layers còn lại trên CPU+RAM (~${estimatedRamMb} MB). ${ramStatus}`,
+      isSufficient: isOverallSufficient,
+      ramStatus,
     };
   }
 }
@@ -350,9 +380,13 @@ export interface ParsedModelInfo {
 
 /**
  * Automatically parse model metadata (parameter size, quantization, author, category, layers, size)
- * directly from a Hugging Face / GGUF download URL or model name.
+ * directly from a Hugging Face / GGUF download URL, model name, or physical file header.
  */
-export function parseModelMetadata(url: string, manualName?: string): ParsedModelInfo {
+export function parseModelMetadata(
+  url: string,
+  manualName?: string,
+  headerInfo?: { totalLayers?: number; quantizationType?: string; name?: string; fileSizeBytes?: number }
+): ParsedModelInfo {
   const cleanUrl = (url || '').trim();
   let normalizedUrl = cleanUrl;
   if (normalizedUrl.includes('huggingface.co/') && normalizedUrl.includes('/blob/')) {
@@ -384,10 +418,10 @@ export function parseModelMetadata(url: string, manualName?: string): ParsedMode
   }
 
   // 2. Quantization (e.g. Q4_K_M, Q8_0, Q4_0, Q6_K, IQ4_XS, BF16, FP16)
-  let quantization = 'Q4_K_M';
+  let quantization = headerInfo?.quantizationType || 'Q4_K_M';
   const quantMatch = cleanUrl.match(/(?:^|[\/\-_.\s])((?:I?Q[0-9]_[A-Z0-9_]+)|(?:Q[0-9]_[0-9])|(?:BF16)|(?:FP16)|(?:F16)|(?:F32))(?:[\/\-_.\s]|$|\.gguf)/i)
     || searchStr.match(/\b((?:I?Q[0-9]_[A-Z0-9_]+)|(?:Q[0-9]_[0-9])|(?:BF16)|(?:FP16)|(?:F16)|(?:F32))\b/i);
-  if (quantMatch) {
+  if (quantMatch && !headerInfo?.quantizationType) {
     quantization = quantMatch[1].toUpperCase();
   }
 
@@ -402,15 +436,17 @@ export function parseModelMetadata(url: string, manualName?: string): ParsedMode
     category = 'vision';
   }
 
-  // 4. Layers
+  // 4. Layers (use exact binary header if valid)
   const numB = parseFloat(parameterSize) || 7;
-  let totalLayers = 32;
-  if (numB <= 2) totalLayers = 24;
-  else if (numB <= 4) totalLayers = 28;
-  else if (numB <= 9) totalLayers = 32;
-  else if (numB <= 16) totalLayers = 48;
-  else if (numB <= 36) totalLayers = 64;
-  else totalLayers = 80;
+  let totalLayers = headerInfo?.totalLayers || 32;
+  if (!headerInfo?.totalLayers) {
+    if (numB <= 2) totalLayers = 24;
+    else if (numB <= 4) totalLayers = 28;
+    else if (numB <= 9) totalLayers = 32;
+    else if (numB <= 16) totalLayers = 48;
+    else if (numB <= 36) totalLayers = 64;
+    else totalLayers = 80;
+  }
 
   // 5. Estimated File Size
   let bytesPerParam = 0.65; // Baseline for Q4 in GB per billion params
@@ -422,12 +458,14 @@ export function parseModelMetadata(url: string, manualName?: string): ParsedMode
   else if (qUpper.includes('Q2') || qUpper.includes('IQ2')) bytesPerParam = 0.4;
   else if (qUpper.includes('16')) bytesPerParam = 2.1;
 
-  const estimatedGb = Math.max(0.5, Math.round(numB * bytesPerParam * 10) / 10);
-  const fileSizeBytes = Math.round(estimatedGb * 1024 * 1024 * 1024);
+  let fileSizeBytes = headerInfo?.fileSizeBytes || Math.round((parseFloat(parameterSize) || 7) * bytesPerParam * 1024 * 1024 * 1024);
+  let estimatedGb = Math.max(0.5, Math.round((fileSizeBytes / (1024 * 1024 * 1024)) * 10) / 10);
 
   // 6. Name
   let name = (manualName || '').trim();
-  if (!name) {
+  if (headerInfo?.name) {
+    name = headerInfo.name;
+  } else if (!name) {
     if (baseNameFromUrl) {
       name = baseNameFromUrl
         .replace(new RegExp(`[_-]?${quantization}`, 'i'), '')

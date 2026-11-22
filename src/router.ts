@@ -6,6 +6,8 @@ import type { LlamaProcessManager } from './llama-process.js';
 import { ProviderClient, type StreamChunk } from './provider-client.js';
 import type { ProviderConfig, ChatMessage } from './types.js';
 import { getSmartModelPreset } from './model-presets.js';
+import { estimateTokens, clampToTokens, type TokenBreakdown } from './token-utils.js';
+import { RustTokenizerService } from './rust-tokenizer.js';
 
 export class MultiProviderRouter {
   private db: DatabaseService;
@@ -17,12 +19,7 @@ export class MultiProviderRouter {
   }
 
   public findModelPath(modelFilename?: string): string | null {
-    const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || 'C:\\';
-    const candidateDirs = [
-      this.db.getModelsDir(),
-      path.join(home, 'LocalAI', 'models'),
-      path.resolve(process.cwd(), 'models'),
-    ];
+    const candidateDirs = this.db.getAllModelDirs();
 
     for (const dir of candidateDirs) {
       if (!dir || !fs.existsSync(dir)) continue;
@@ -182,22 +179,18 @@ export class MultiProviderRouter {
 
     const totalCtxLimit = safeCtxSize || 4096;
     const maxGenTokens = Math.min(1024, options.maxTokens || 1024);
-    // Hard ceiling for prompt tokens: total context minus generation space minus 200 safety buffer
-    const maxPromptBudget = Math.max(800, totalCtxLimit - maxGenTokens - 200);
+    // Hard ceiling for prompt tokens: total context minus generation space minus 150 safety buffer
+    const maxPromptBudget = Math.max(600, totalCtxLimit - maxGenTokens - 150);
 
-    // Approximate token count: ~3.5 chars per token for mixed Vietnamese & code
-    const estimateTokens = (text: string) => Math.ceil((text || '').length / 3.5);
-
-    // 1) Clamp systemPrompt if it takes more than 25% of maxPromptBudget
+    // 1) System Prompt: Clamp if it takes more than 25% of maxPromptBudget (or > 600 tokens)
     let effectiveSystemPrompt = options.systemPrompt || '';
-    const maxSystemTokens = Math.floor(maxPromptBudget * 0.25);
+    const maxSystemTokens = Math.min(600, Math.floor(maxPromptBudget * 0.25));
     if (estimateTokens(effectiveSystemPrompt) > maxSystemTokens) {
-      const maxChars = Math.floor(maxSystemTokens * 3.5);
-      effectiveSystemPrompt = effectiveSystemPrompt.slice(0, maxChars) + '\n\n...[Chỉ dẫn hệ thống được tinh gọn]...';
+      effectiveSystemPrompt = clampToTokens(effectiveSystemPrompt, maxSystemTokens);
     }
+    const systemTokens = estimateTokens(effectiveSystemPrompt);
 
-    // 2) History Reservation: Reserve up to 40% of maxPromptBudget for recent conversation history
-    // so that attached files / long prompts do not completely wipe out conversation memory!
+    // 2) Conversation History: Keep recent messages within 35% of maxPromptBudget
     const history = this.db.getMessages(sessionId);
     const cleanedHistory = history
       .slice(0, -1)
@@ -215,33 +208,88 @@ export class MultiProviderRouter {
       )
       .filter((m) => m.content);
 
-    const minHistoryBudget = Math.min(1000, Math.floor(maxPromptBudget * 0.40));
+    const maxHistoryBudget = Math.min(1200, Math.floor(maxPromptBudget * 0.35));
     const budgetedMessages: ChatMessage[] = [];
     let historyTokens = 0;
 
-    // Accumulate the most recent messages up to minHistoryBudget
     for (let i = cleanedHistory.length - 1; i >= 0; i--) {
       const msg = cleanedHistory[i];
       const msgTokens = estimateTokens(msg.content);
-      if (historyTokens + msgTokens > minHistoryBudget && budgetedMessages.length >= 2) {
-        break; // Ensure at least 2 recent messages are kept
+      if (historyTokens + msgTokens > maxHistoryBudget && budgetedMessages.length >= 2) {
+        break;
       }
       budgetedMessages.unshift(msg);
       historyTokens += msgTokens;
-      if (historyTokens >= minHistoryBudget) break;
+      if (historyTokens >= maxHistoryBudget) break;
     }
 
     // 3) Allocate remaining budget for sanitizedFinalPrompt
-    const systemTokens = estimateTokens(effectiveSystemPrompt);
     const remainingForPrompt = Math.max(300, maxPromptBudget - systemTokens - historyTokens);
-
     let sanitizedFinalPrompt = finalPrompt;
     if (estimateTokens(sanitizedFinalPrompt) > remainingForPrompt) {
-      const allowedChars = Math.floor(remainingForPrompt * 3.5);
-      sanitizedFinalPrompt = sanitizedFinalPrompt.slice(0, allowedChars) + '\n\n...[Nội dung tóm lược để vừa vặn bộ nhớ]...';
+      sanitizedFinalPrompt = clampToTokens(sanitizedFinalPrompt, remainingForPrompt);
+    }
+
+    // 4) Strict Hard-Cap Verification: Ensure total prompt tokens strictly NEVER exceed maxPromptBudget
+    let totalPromptTokens = systemTokens + historyTokens + estimateTokens(sanitizedFinalPrompt);
+    while (totalPromptTokens > maxPromptBudget && budgetedMessages.length > 0) {
+      const removed = budgetedMessages.shift();
+      if (removed) {
+        historyTokens -= estimateTokens(removed.content);
+        totalPromptTokens = systemTokens + historyTokens + estimateTokens(sanitizedFinalPrompt);
+      }
+    }
+    if (totalPromptTokens > maxPromptBudget) {
+      const remainingForPromptAfterPrune = Math.max(200, maxPromptBudget - systemTokens - historyTokens);
+      sanitizedFinalPrompt = clampToTokens(sanitizedFinalPrompt, remainingForPromptAfterPrune);
+      totalPromptTokens = systemTokens + historyTokens + estimateTokens(sanitizedFinalPrompt);
     }
 
     const apiMessages = [...budgetedMessages, { ...userMsg, content: sanitizedFinalPrompt }];
+
+    // Token breakdown reporting with Rust Tokenizer detection
+    const tokenizerPath = RustTokenizerService.findTokenizerPath(modelFilename);
+    let tokenEngine: 'rust' | 'llama-server' | 'heuristic' = 'heuristic';
+
+    if (tokenizerPath) {
+      const rustReady = await RustTokenizerService.loadTokenizer(tokenizerPath);
+      if (rustReady) {
+        const testRes = await RustTokenizerService.tokenize(sanitizedFinalPrompt, { tokenizerPath });
+        if (testRes.engine === 'rust') {
+          tokenEngine = 'rust';
+          console.log(`[Rust Tokenizer] Successfully tokenized prompt with Rust engine (tokens: ${testRes.count})`);
+        }
+      }
+    }
+
+    const userPromptTokens = estimateTokens(userPrompt);
+    const contextFilesTokens = options.contextFiles ? estimateTokens(options.contextFiles.map((f) => f.content).join('\n')) : 0;
+    const tokenBreakdown: TokenBreakdown = {
+      systemPromptTokens: systemTokens,
+      rulesTokens: 0,
+      skillsTokens: 0,
+      workspaceTokens: Math.max(0, estimateTokens(sanitizedFinalPrompt) - userPromptTokens - contextFilesTokens),
+      contextFilesTokens,
+      historyTokens,
+      userPromptTokens,
+      totalPromptTokens,
+      contextLimit: totalCtxLimit,
+      maxGenTokens,
+      remainingTokens: Math.max(0, totalCtxLimit - totalPromptTokens - maxGenTokens),
+      engine: tokenEngine,
+    };
+
+    console.log(
+      `[Token Breakdown] Engine: ${tokenEngine.toUpperCase()} | Total Prompt: ${totalPromptTokens} / ${totalCtxLimit} tokens ` +
+      `(System: ${systemTokens}, History: ${historyTokens}, Context/Files: ${contextFilesTokens}, Query: ${userPromptTokens})`
+    );
+
+    // Yield token breakdown metadata event before streaming content
+    yield {
+      content: '',
+      done: false,
+      tokenBreakdown,
+    } as any;
 
     // 4. Check & Auto-start local llama-server if selected
     if (provider.id === 'local-llama' || provider.type === 'llama-server') {
@@ -314,7 +362,7 @@ export class MultiProviderRouter {
 
       try {
         for await (const chunk of ProviderClient.streamChat(provider, apiMessages, {
-          systemPrompt: options.systemPrompt,
+          systemPrompt: effectiveSystemPrompt,
           temperature: effectiveTemp,
           topP: effectiveTopP,
           maxTokens: options.maxTokens,
@@ -357,7 +405,7 @@ export class MultiProviderRouter {
 
     try {
       for await (const chunk of ProviderClient.streamChat(provider, apiMessages, {
-        systemPrompt: options.systemPrompt,
+        systemPrompt: effectiveSystemPrompt,
         temperature: options.temperature,
         topP: options.topP,
         maxTokens: options.maxTokens,

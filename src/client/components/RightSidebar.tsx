@@ -94,6 +94,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   const [ragQuery, setRagQuery] = useState('');
   const [ragSearching, setRagSearching] = useState(false);
   const [ragResults, setRagResults] = useState<RAGSearchResult[]>([]);
+  const [ragEngine, setRagEngine] = useState<'rust' | 'ts'>('rust');
   const [ragSearched, setRagSearched] = useState(false);
   const [ragError, setRagError] = useState<string | null>(null);
 
@@ -113,6 +114,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
     try {
       const data = await api.searchWorkspaceRAG(activeWorkspace.id, ragQuery.trim());
       setRagResults(data.results || []);
+      if (data.engine) setRagEngine(data.engine);
       setRagSearched(true);
     } catch (err: any) {
       setRagError(err.message || 'Lỗi tra cứu RAG');
@@ -615,14 +617,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
         {openTabs.includes('rag') && activeTab === 'rag' && (
           <div className="space-y-3 animate-fade-in">
             <div className="p-3 rounded-xl glass-card border border-sky-500/30 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Database className="w-4 h-4 text-sky-400" />
-                  <span className="font-bold text-xs text-white">Offline Vector RAG</span>
-                </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono font-semibold">
-                  100% Offline
-                </span>
+              <div className="flex items-center space-x-2">
+                <Database className="w-4 h-4 text-sky-400" />
+                <span className="font-bold text-xs text-white">Offline Vector RAG</span>
               </div>
               <p className="text-[11px] text-gray-300 leading-relaxed">
                 {tr.ragExplanation}
@@ -693,8 +690,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
                       : `Found ${ragResults.length} matching snippets`}
                   </span>
                   {ragResults.length > 0 && (
-                    <span className="text-[10px] text-sky-400 font-mono font-semibold">
-                      Ranked by Relevance
+                    <span className="text-[10px] text-emerald-400 font-mono font-semibold flex items-center gap-1">
+                      {ragEngine === 'rust' ? '🦀 Tăng tốc Rust' : 'Xếp hạng theo độ liên quan'}
                     </span>
                   )}
                 </div>

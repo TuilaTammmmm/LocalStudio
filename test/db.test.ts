@@ -54,5 +54,6 @@ if (messages.length !== 1 || messages[0].content !== 'Hello LocalAI') {
 }
 
 // Clean up
+db.close();
 fs.rmSync(testDir, { recursive: true, force: true });
 console.log('✅ Phase 1 Database verification PASSED!');

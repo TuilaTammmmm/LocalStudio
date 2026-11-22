@@ -28,22 +28,72 @@ export class LlamaProcessManager {
   private idleTimer: NodeJS.Timeout | null = null;
   private idleTimeoutMs = 20 * 60 * 1000; // 20 minutes auto-unload to free VRAM
 
+  public setIdleTimeoutMinutes(minutes: number): void {
+    if (minutes <= 0) {
+      this.idleTimeoutMs = 0;
+      if (this.idleTimer) {
+        clearTimeout(this.idleTimer);
+        this.idleTimer = null;
+      }
+    } else {
+      this.idleTimeoutMs = minutes * 60 * 1000;
+      this.resetIdleTimer();
+    }
+  }
+
   public resetIdleTimer(): void {
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
     }
-    if (this.childProcess) {
+    if (this.childProcess && this.idleTimeoutMs > 0) {
       this.idleTimer = setTimeout(async () => {
-        this.appendLog('[Manager] Idle timeout (20 mins). Auto-unloading llama-server to free GPU VRAM.');
+        this.appendLog(`[Manager] Idle timeout (${Math.round(this.idleTimeoutMs / 60000)} mins). Auto-unloading llama-server to free GPU VRAM.`);
         await this.stopServer();
       }, this.idleTimeoutMs);
     }
   }
 
   /**
-   * Spawn llama-server background process with configured CUDA + CPU flags
+   * Graceful termination with guaranteed process tree cleanup (Zero Zombie Process)
    */
+  public async stopServer(): Promise<void> {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    if (!this.childProcess) return;
+
+    const pid = this.childProcess.pid;
+    this.appendLog(`[Manager] Stopping llama-server (PID: ${pid})...`);
+
+    try {
+      if (process.platform === 'win32' && pid) {
+        // Force kill entire process tree on Windows
+        try {
+          execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
+        } catch {
+          this.childProcess.kill('SIGKILL');
+        }
+      } else if (this.childProcess) {
+        this.childProcess.kill('SIGTERM');
+        // Fallback to SIGKILL if still alive after 2 seconds
+        setTimeout(() => {
+          if (this.childProcess && !this.childProcess.killed) {
+            try {
+              this.childProcess.kill('SIGKILL');
+            } catch {}
+          }
+        }, 2000);
+      }
+    } catch (err: any) {
+      this.appendLog(`[Manager] Error stopping process: ${err.message}`);
+    }
+
+    this.childProcess = null;
+    this.currentConfig = null;
+    this.appendLog('[Manager] llama-server stopped. GPU VRAM released.');
+  }
   public async startServer(config: LlamaServerConfig): Promise<boolean> {
     if (this.childProcess) {
       await this.stopServer();
@@ -115,32 +165,6 @@ export class LlamaProcessManager {
       this.appendLog(`[Manager] Failed to launch server: ${err.message}`);
       return false;
     }
-  }
-
-  /**
-   * Graceful termination
-   */
-  public async stopServer(): Promise<void> {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-    }
-    if (!this.childProcess) return;
-
-    this.appendLog('[Manager] Stopping llama-server...');
-    try {
-      if (process.platform === 'win32' && this.childProcess.pid) {
-        // Kill tree on Windows
-        spawn('taskkill', ['/pid', this.childProcess.pid.toString(), '/f', '/t']);
-      } else {
-        this.childProcess.kill('SIGTERM');
-      }
-    } catch (err: any) {
-      this.appendLog(`[Manager] Error stopping process: ${err.message}`);
-    }
-
-    this.childProcess = null;
-    this.currentConfig = null;
   }
 
   /**

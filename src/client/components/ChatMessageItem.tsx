@@ -208,14 +208,29 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
         {!isUser && message.content && (
           <div className="pt-2.5 mt-2 flex flex-wrap items-center justify-between border-t border-[#21262d] gap-2">
             {/* LM Studio Live Inference Stats HUD */}
-            <div className="flex items-center space-x-2.5 text-[10px] font-mono text-gray-500">
+            <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono text-gray-500">
               <span className="flex items-center space-x-1 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-semibold">
                 <Zap className="w-3 h-3" />
                 <span>{message.tokensPerSec || '41.2'} t/s</span>
               </span>
               <span>TTFT: <span className="text-gray-300 font-semibold">{message.timeToFirstTokenMs || '220'}ms</span></span>
               <span>•</span>
-              <span>Tokens: <span className="text-gray-300 font-semibold">~{Math.ceil(message.content.length / 3.8)}</span></span>
+              <span>Sinh: <span className="text-gray-300 font-semibold">~{Math.ceil(message.content.length / 3.8)} tokens</span></span>
+
+              {message.tokenBreakdown && (
+                <>
+                  <span>•</span>
+                  <span
+                    className="text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20 cursor-help flex items-center space-x-1"
+                    title={`Chỉ dẫn hệ thống: ${message.tokenBreakdown.systemPromptTokens} tokens | Dưới nền & Dự án: ${message.tokenBreakdown.workspaceTokens + message.tokenBreakdown.contextFilesTokens} tokens | Lịch sử: ${message.tokenBreakdown.historyTokens} tokens | Câu hỏi: ${message.tokenBreakdown.userPromptTokens} tokens | Giới hạn ngữ cảnh: ${message.tokenBreakdown.contextLimit} tokens`}
+                  >
+                    <span>
+                      {message.tokenBreakdown.engine === 'rust' ? '🦀 Cắt bằng Rust: ' : 'Ngữ cảnh: '}
+                      {message.tokenBreakdown.totalPromptTokens} / {message.tokenBreakdown.contextLimit} tokens (Hệ thống: {message.tokenBreakdown.systemPromptTokens} • Nền: {message.tokenBreakdown.workspaceTokens + message.tokenBreakdown.contextFilesTokens})
+                    </span>
+                  </span>
+                </>
+              )}
             </div>
 
             <div className="flex items-center space-x-1.5">
@@ -257,6 +272,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
     prevProps.message.content === nextProps.message.content &&
     prevProps.message.thinking === nextProps.message.thinking &&
     prevProps.message.modelUsed === nextProps.message.modelUsed &&
+    prevProps.message.tokenBreakdown === nextProps.message.tokenBreakdown &&
     prevProps.activeWorkspace?.id === nextProps.activeWorkspace?.id &&
     prevProps.onEditPrompt === nextProps.onEditPrompt &&
     prevProps.onRegenerate === nextProps.onRegenerate

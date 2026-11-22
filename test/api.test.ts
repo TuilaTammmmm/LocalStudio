@@ -104,7 +104,18 @@ async function run() {
   if (!cancelData.success) throw new Error('Failed to cancel download');
   console.log('[Downloader] Model download started and canceled successfully.');
 
+  // 9. Test Hugging Face Hub Search & Files Endpoints
+  const hfEmptyRes = await app.request('/api/hf/search');
+  if (hfEmptyRes.status !== 200) throw new Error('Failed /api/hf/search with empty query');
+  const hfEmptyData: any = await hfEmptyRes.json();
+  if (!Array.isArray(hfEmptyData.results) || hfEmptyData.results.length !== 0) throw new Error('Expected empty results array');
+
+  const hfRepoNoParam = await app.request('/api/hf/model-files');
+  if (hfRepoNoParam.status !== 400) throw new Error('Expected 400 when repo is missing');
+  console.log('[HF Hub] Hugging Face Search & Model Files endpoint validations verified.');
+
   // Clean up
+  db.close();
   fs.rmSync(testDir, { recursive: true, force: true });
   console.log('✅ Phase 6 REST API Integration verification PASSED!');
 }

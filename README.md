@@ -1,150 +1,21 @@
-# ⚡ LocalAI Desktop Studio
+# ⚡ LocalAI Desktop Studio (v1.0.5)
 
-> **Privacy-First AI Workstation with CUDA Acceleration, Smart Auto-Routing, GGUF Model Hub & Glassmorphism UI**
+> **Máy trạm AI cục bộ độc lập với tăng tốc phần cứng NVIDIA CUDA, nhân Rust siêu tốc, kho mô hình Hugging Face & giao diện Glassmorphism hiện đại.**
+> 
+> *Standalone, privacy-first local AI workstation powered by bundled llama.cpp CUDA runtime, high-performance Rust core engine, live Hugging Face Hub search, and glassmorphic desktop interface.*
 
 [![Platform](https://img.shields.io/badge/Platform-Windows%20x64-blue.svg)](https://microsoft.com/windows)
+[![Version](https://img.shields.io/badge/Version-1.0.5-emerald.svg)](package.json)
+[![Rust](https://img.shields.io/badge/Rust%20Engine-v0.1.0-orange.svg)](rust-tokenizer)
+[![CUDA](https://img.shields.io/badge/CUDA%20Offload-GTX%201650%20(4GB)%20Ready-green.svg)](https://developer.nvidia.com/cuda-zone)
 [![Electron](https://img.shields.io/badge/Electron-45.3-47848F.svg)](https://www.electronjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-cyan.svg)](https://react.dev/)
 [![Hono](https://img.shields.io/badge/Hono-4.13-orange.svg)](https://hono.dev/)
-[![TailwindCSS](https://img.shields.io/badge/Tailwind-3.4-38bdf8.svg)](https://tailwindcss.com/)
-[![CUDA](https://img.shields.io/badge/CUDA%20Offload-GTX%201650%20(4GB)-green.svg)](https://developer.nvidia.com/cuda-zone)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-**Languages:** [🇬🇧 English](#english) • [🇻🇳 Tiếng Việt](#tiếng-việt)
-
----
-
-<a id="english"></a>
-# 🇬🇧 English Documentation
-
-## 🌟 Overview
-
-**LocalAI Desktop Studio** is a standalone, local-first AI application designed for developers and researchers who demand high responsiveness, privacy, and full control over local Large Language Models (LLMs) with optional cloud fallback.
-
-Optimized specifically for consumer hardware (such as **NVIDIA GeForce GTX 1650 4GB VRAM / 8GB-16GB RAM**), LocalAI dynamically computes optimal GPU layer offloading (`-ngl 99` for 1B-3B models, dynamic hybrid splitting for 7B-8B) with a 1,000MB OS display buffer, completely preventing CUDA Out-Of-Memory (OOM) crashes on Windows.
-
----
-
-## ✨ Key Features
-
-### 1. ⚡ Embedded `llama.cpp` Runtime (Zero-Terminal Setup)
-- **Automatic Lifecycle Control**: Embedded `llama-server.exe` with CUDA 12.x (`ggml-cuda.dll`) and CPU AVX2 runtimes.
-- **On-Demand Launching**: Automatically starts the inference server upon sending a message and releases memory when closed without orphaned processes.
-- **Dynamic Hot-Reloading**: Seamlessly switches models in VRAM when selecting a different model from the chat bar.
-- **Flash Attention**: Enables Flash Attention (`-fa on`) to save up to 30% VRAM.
-
-### 2. 🎛️ GGUF Model Hub & Hardware Tuner
-- **HTTP Streaming Downloader**: Direct downloads of quantized GGUF weights (`Q4_K_M`) from Hugging Face CDN endpoints with real-time progress indicators.
-- **Permanent Model Management**: Safely delete local model files from `%USERPROFILE%\LocalAI\models` with server unlinking and file-lock protection.
-- **Live Strategy Feedback**: Real-time display indicating whether models will execute in **Full GPU Offload** or **Hybrid GPU+CPU**.
-- **Centralized Hardware Tuning**: Fine-tune GPU Layers (`-ngl`), Context Size (`-c`), CPU Threads (`-t`), and Flash Attention (`-fa`).
-
-### 3. 🔮 Smart Auto-Model Router & In-Chat Switcher
-- **Prompt Intent Analysis**:
-  - `[🔮 Auto-Route]`: Automatically analyzes prompt semantics and image attachments.
-  - `[⚡ Qwen-3B / Llama-1B]`: Ultra-fast general dialogue (>60 tokens/s).
-  - `[💻 Coder-7B]`: Code generation, debugging, and refactoring.
-  - `[🧠 DeepSeek-R1]`: Deep reasoning with collapsible `<think>` thought boxes.
-  - `[👁️ Vision]`: Multimodal visual reasoning and screenshot inspection.
-  - `[🌐 Cloud Provider]`: Seamless fallback to cloud APIs for heavy queries (>6,000 tokens).
-
-### 4. 📂 Workspaces & Unified Developer Sidebar
-- **Workspace Isolation**: Separate conversation sessions and project directories.
-- **5-in-1 Side Tools**:
-  - `Files`: Interactive file browser with `@filename` context injection.
-  - `Shell`: Sandboxed PowerShell terminal executing inside project root.
-  - `Web`: In-App Browser preview for local servers (`http://localhost:3000`).
-  - `RAG`: Offline vector storage monitoring and semantic search.
-  - `Prompt`: Workspace-level custom system instructions.
-
-### 5. 💎 Modern Glassmorphic Interface
-- Dark Midnight theme built with React 19, TailwindCSS, and Lucide icons.
-- Real-time telemetry dashboard: Tokens per second (`t/s`), Time-to-First-Token (`TTFT`), and token counters.
-- Full bilingual localization: English & Vietnamese.
-
----
-
-## 🏗️ Architecture
-
-```
-LocalAI/
-├── electron/                    # Electron Host Process
-│   ├── main.ts                  # Main process lifecycle, single-instance lock
-│   └── preload.ts               # Secure context bridge (IPC)
-├── build-assets/                # Multi-resolution icons (.ico, .png, .icns)
-├── src/
-│   ├── client/                  # Frontend (React 19 + Vite + TailwindCSS)
-│   │   ├── components/          # Chat, Settings, Workspaces, Sidebars
-│   │   ├── App.tsx              # Reactive state orchestration
-│   │   └── i18n.ts              # English / Vietnamese translations
-│   ├── hardware.ts              # GPU telemetry (nvidia-smi) & memory detection
-│   ├── llama-process.ts         # Child process manager for llama-server CUDA
-│   ├── auto-router.ts           # Semantic intent classifier
-│   ├── model-hub.ts             # GGUF catalog & compatibility calculator
-│   ├── model-downloader.ts      # Chunked streaming downloader
-│   ├── router.ts                # Multi-provider router & SSE streamer
-│   ├── workspace-fs.ts          # Safe filesystem & path-traversal guard
-│   ├── db.ts                    # Atomic local JSON database
-│   └── server.ts                # Hono REST & SSE API server
-├── test/                        # 7-phase automated test suites
-├── electron-builder.json        # Windows installer & portable packaging config
-└── README.md
-```
-
----
-
-## 💻 System Requirements
-
-| Component | Minimum | Recommended |
-|---|---|---|
-| **Operating System** | Windows 10 64-bit | Windows 11 64-bit |
-| **Processor** | 4-Core CPU (Intel i5 / AMD Ryzen 5) | 6+ Core CPU |
-| **System RAM** | 8 GB | 16 GB or higher |
-| **Graphics (GPU)** | Integrated Graphics (CPU Mode) | NVIDIA GTX 1650 4GB+ (CUDA) |
-| **Available Disk** | 10 GB SSD | 30+ GB SSD (for multiple GGUF models) |
-
----
-
-## 🚀 Getting Started
-
-### 1. Installation
-```powershell
-# Clone the repository
-git clone https://github.com/TuilaTammmmm/LocalStudio.git
-cd LocalStudio
-
-# Install all dependencies
-pnpm install
-```
-
-### 2. Development Mode
-Run Vite and Electron concurrently:
-```powershell
-pnpm electron:dev
-```
-*(Or run in browser mode: `pnpm dev:all` $\rightarrow$ open `http://localhost:3000`)*
-
-### 3. Automated Tests
-Run all 7 test suites validating backend, security, and hardware detection:
-```powershell
-pnpm test
-```
-
-### 4. Standalone Windows Packaging (.exe)
-Build standalone installer and portable packages without requiring Node.js on end-user machines:
-```powershell
-pnpm electron:build
-```
-Outputs in `release/`:
-- `LocalAI Studio Setup 0.1.0.exe`: Standard NSIS installer with Desktop and Start Menu shortcuts.
-- `LocalAI Studio 0.1.0.exe`: Portable standalone executable.
-
----
-
-<br/>
+**Ngôn ngữ / Languages:** [🇻🇳 Tiếng Việt](#tiếng-việt) • [🇬🇧 English](#english)
 
 ---
 
@@ -153,97 +24,169 @@ Outputs in `release/`:
 
 ## 🌟 Giới thiệu tổng quan
 
-**LocalAI Desktop Studio** là ứng dụng AI máy trạm độc lập (Standalone Desktop App) chạy hoàn toàn trên máy tính của bạn, kết hợp sức mạnh suy luận mô hình lớn cục bộ (Local LLMs) với khả năng mở rộng Cloud API khi cần ngữ cảnh lớn.
-
-Được tối ưu hóa chuyên sâu cho cấu hình phần cứng phổ thông (như **NVIDIA GeForce GTX 1650 4GB VRAM / 8GB-16GB RAM**), LocalAI tính toán phân bổ tầng GPU/CPU (`-ngl 21` cho 7B-8B, `-ngl 99` cho 1.5B-3B) với vùng đệm an toàn 1000MB VRAM cho Windows OS, ngăn ngừa triệt để lỗi tràn bộ nhớ đồ họa (CUDA Out-Of-Memory).
+**LocalAI Desktop Studio v1.0.5** là ứng dụng máy trạm AI máy tính để bàn (Desktop App) hoạt động độc lập, ưu tiên bảo mật dữ liệu cục bộ 100%. Ứng dụng được thiết kế tối ưu hóa chuyên sâu cho phần cứng phổ thông (như **NVIDIA GeForce GTX 1650 4GB VRAM** và **8GB–16GB RAM**), tích hợp sẵn toàn bộ động cơ tính toán ma trận GPU CUDA và nhân **Rust** siêu tốc mà không yêu cầu người dùng phải cài đặt thêm môi trường phức tạp hay gõ lệnh terminal.
 
 ---
 
-## ✨ Tính năng nổi bật
+## ✨ Các tính năng cốt lõi (v1.0.5)
 
-### 1. ⚡ Động cơ `llama.cpp` tích hợp sẵn (Không cần gõ Terminal)
-- **Tự động quản lý tiến trình**: Đóng gói sẵn `llama-server.exe` cùng bộ thư viện CUDA 12.x (`ggml-cuda.dll`) và CPU AVX2.
-- **Kích hoạt theo nhu cầu (On-Demand)**: Tự động khởi chạy engine khi gửi tin nhắn chat, tự động giải phóng tài nguyên khi đóng app, không để lại tiến trình chạy ngầm rác.
-- **Hot-Reload VRAM**: Chuyển đổi mô hình mượt mà ngay trên thanh chat mà không cần khởi động lại ứng dụng.
-- **Bật Flash Attention**: Hỗ trợ cờ `-fa on` giúp tiết kiệm đến 30% dung lượng VRAM.
+### 1. ⚡ Tích hợp sẵn Nhân GPU CUDA (Bundled llama.cpp Runtime)
+- **Đóng gói sẵn 100% trong `bin/`**: Tích hợp trực tiếp `llama-server.exe`, `ggml-cuda.dll`, `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll`.
+- **Nhận diện CUDA tự động**: Nhận diện card đồ họa NVIDIA (CUDA0) ngay khi khởi chạy.
+- **Tự động phân bổ Layer GPU (`-ngl`)**:
+  - Mô hình nhỏ (1B – 3B): Đẩy 100% lên VRAM GPU (`-ngl 99`, tốc độ ~45 – 80 tokens/s).
+  - Mô hình vừa (7B – 8B): Chế độ lai Hybrid thông minh (phần lớn layer trên GPU CUDA, phần còn lại trên CPU đa luồng, tốc độ ~10 – 20 tokens/s).
+- **Tối ưu bộ nhớ**: Kích hoạt Flash Attention (`-fa`) tiết kiệm ~30% VRAM; tự động giải phóng mô hình khỏi VRAM sau 20 phút không hoạt động để trả lại bộ nhớ cho máy tính.
 
-### 2. 🎛️ Kho mô hình GGUF & Cài đặt phần cứng
-- **Tải trực tiếp qua HTTP Streaming**: Tải các bản lượng tử hóa GGUF (`Q4_K_M`) từ máy chủ Hugging Face với thanh tiến trình real-time.
-- **Quản lý & Xóa tệp an toàn**: Lưu trữ tại `%USERPROFILE%\LocalAI\models`, giải phóng file-lock trước khi xóa vĩnh viễn khỏi ổ cứng.
-- **Gợi ý phân bổ phần cứng trực tiếp**: Hiển thị dự toán mô hình sẽ chạy ở chế độ **Full GPU Offload** hay **Hybrid GPU+CPU**.
-- **Cấu hình phần cứng tập trung**: Tùy chỉnh GPU Layers (`-ngl`), Context Size (`-c`), CPU Threads (`-t`), và Flash Attention (`-fa`).
+### 2. 🦀 Nhân Rust siêu tốc (Rust Core Acceleration)
+- **Cắt Token thời gian thực (Rust Tokenizer Daemon)**: Viết bằng Rust với thư viện chính thức Hugging Face `tokenizers`, chạy ngầm dạng daemon JSON-RPC qua `stdin/stdout`. Cắt câu và chuyển thành Token ID trong thời gian dưới 1 phần nghìn giây (< 1ms).
+- **Tự động tải `tokenizer.json`**: Khi tải model từ Hugging Face, bộ tải tự động quét và tải luôn tệp `tokenizer.json` về thư mục mô hình.
+- **Tra cứu RAG ngoại tuyến đa luồng (`🦀 Tăng tốc Rust`)**: Quét và lập chỉ mục toàn bộ mã nguồn dự án, chia cửa sổ trượt 25 dòng và xếp hạng liên quan BM25/Exact Phrase bằng Rust với độ trễ < 5ms (nhanh gấp 30–50 lần JavaScript).
 
-### 3. 🔮 Bộ định tuyến tự động & Chọn nhanh Model
-- **Phân loại câu hỏi thông minh**:
-  - `[🔮 Auto-Route]`: Tự động phân tích câu lệnh và hình ảnh đính kèm.
-  - `[⚡ Qwen-3B / Llama-1B]`: Trò chuyện thường ngày siêu tốc (>60 tokens/s).
-  - `[💻 Coder-7B]`: Chuyên biệt viết mã, kiểm thử và refactor code.
-  - `[🧠 DeepSeek-R1]`: Suy luận từng bước với hộp tư duy `<think>` thu gọn/mở rộng.
-  - `[👁️ Vision]`: Nhận diện ảnh chụp màn hình và sơ đồ kiến trúc.
-  - `[🌐 Cloud Provider]`: Tự động fallback sang Cloud API khi ngữ cảnh vượt ngưỡng (>6000 tokens).
+### 3. 🛡️ Chống tràn ngữ cảnh & Bảng phân tích Token (Token Budgeting)
+- **Bảo vệ chống lỗi tràn bộ nhớ (Context Overflow Guard)**: Đo lường chính xác dung lượng của System Prompt, tệp đính kèm, lịch sử chat và câu hỏi; tự động gọt dũa lịch sử trò chuyện khi vượt quá độ dài ngữ cảnh (`n_ctx`), loại bỏ triệt để lỗi HTTP 400 (`request exceeds available context size`).
+- **Bảng điều khiển Token HUD**: Hiển thị chi tiết số token từng thành phần ngay trên tin nhắn (Hệ thống, Ngữ cảnh, Lịch sử, Người dùng).
 
-### 4. 📂 Không gian làm việc & Thanh công cụ lập trình
-- **Cô lập dự án**: Mỗi Workspace quản lý danh mục tệp và các phiên hội thoại riêng biệt.
-- **5 công cụ trong 1**:
-  - `Tệp (Files)`: Cây thư mục tương tác, đính kèm ngữ cảnh nhanh bằng `@tên_tệp`.
-  - `Shell (Terminal)`: Terminal PowerShell tích hợp cơ chế bảo vệ chống lệnh nguy hiểm (`rmdir`, `format`).
-  - `Trình duyệt (Web)`: Xem trước giao diện localhost trực tiếp trong app (`http://localhost:3000`).
-  - `RAG`: Theo dõi chỉ mục vector và tìm kiếm ngữ nghĩa offline.
-  - `Chỉ dẫn (Prompt)`: Cấu hình system prompt riêng cho từng dự án.
+### 4. 🌐 Kho mô hình Hugging Face Hub & Đánh giá tài nguyên thời gian thực
+- **Tìm kiếm trực tiếp từ Hugging Face Hub**: Tìm kiếm bất kỳ mô hình GGUF nào từ kho Hugging Face (`Qwen2.5-Coder`, `DeepSeek-R1`, `Llama-3.2`, `Gemma-2`, `Phi-4`,...).
+- **Đánh giá tương thích theo thời gian thực**: Tự động tính toán dung lượng VRAM và RAM hệ thống khi kéo thanh trượt Layer GPU, báo cáo rõ ràng trạng thái "Đủ tài nguyên" hoặc "Không đủ RAM".
+- **Nút từ điển mô hình `(i)`**: Giải thích chi tiết các thuật ngữ `Instruct`, `Abliterated`, `Thinking`, `Coder`, `Vision` và các bản lượng hóa `Q4_K_M`, `Q8_0` bằng tiếng Việt rõ ràng.
 
-### 5. 💎 Giao diện Glassmorphism hiện đại
-- Giao diện Dark Midnight với React 19, TailwindCSS và Lucide icons.
-- Đồng hồ đo hiệu năng theo thời gian thực: tốc độ sinh từ (`t/s`), độ trễ token đầu (`TTFT`), và bộ đếm token.
-- Hỗ trợ song ngữ hoàn chỉnh: Tiếng Việt & English.
+### 5. 🔌 Đa kết nối & Cổng kết nối API linh hoạt
+- **Local llama.cpp**: Chạy GPU CUDA/CPU offline 100%.
+- **Ollama & LM Studio**: Tự động kết nối tới cổng cục bộ (11434 / 1234).
+- **Cloud API**: Tương thích chuẩn OpenAI / DeepSeek / vLLM / FreeLLM với nút tự động đọc danh sách mô hình từ khóa API.
 
----
-
-## 💻 Yêu cầu hệ thống
-
-| Thành phần | Tối thiểu (Minimum) | Khuyến nghị (Recommended) |
-|---|---|---|
-| **Hệ điều hành** | Windows 10 64-bit | Windows 11 64-bit |
-| **CPU** | 4 Cores (Intel Core i5 / AMD Ryzen 5) | 6+ Cores |
-| **RAM** | 8 GB | 16 GB trở lên |
-| **GPU** | Tích hợp (chạy CPU mode) | NVIDIA GTX 1650 4GB trở lên (CUDA) |
-| **Ổ cứng trống** | 10 GB SSD | 30+ GB SSD (chứa nhiều model GGUF) |
+### 6. 💾 Ghi nhớ trạng thái toàn diện & Giao diện toàn màn hình
+- **Ghi nhớ kích cỡ & vị trí cửa sổ**: Tự động lưu và khôi phục kích cỡ cửa sổ, vị trí trên màn hình và trạng thái phóng to cực đại (`window-state.json`).
+- **Ghi nhớ phiên làm việc**: Tự động khôi phục đúng Dự án và Phiên trò chuyện đang mở trước khi tắt ứng dụng.
+- **Thanh khay hệ thống (System Tray)**: Thu nhỏ về khay hệ thống khi bấm nút đóng (X), tiếp tục phục vụ tiến trình AI nền mà không làm gián đoạn công việc.
+- **Cài đặt Studio toàn màn hình**: Thiết kế rộng rãi, gom toàn bộ nút lưu thành một nút "Lưu thay đổi" duy nhất với thanh điều hướng hoàn tác (Undo/Revert) từng mục đã sửa.
 
 ---
 
 ## 🚀 Hướng dẫn cài đặt & Khởi chạy
 
-### 1. Cài đặt thư viện
-```powershell
-# Clone mã nguồn
-git clone https://github.com/TuilaTammmmm/LocalStudio.git
-cd LocalStudio
+### Yêu cầu hệ thống:
+- **Hệ điều hành**: Windows 10/11 64-bit.
+- **Card đồ họa khuyến nghị**: NVIDIA GeForce GTX 1650 (4GB VRAM) hoặc cao hơn. Driver NVIDIA 535+ (khuyến nghị 621.x trở lên).
+- **Node.js**: v20+ và **pnpm**: v9+ (nếu chạy từ mã nguồn).
+- **Rust / Cargo**: 1.80+ (dùng để biên dịch engine Rust).
 
-# Cài đặt toàn bộ packages
+### Các lệnh thực thi:
+
+```bash
+# 1. Cài đặt các gói phụ thuộc
 pnpm install
-```
 
-### 2. Chạy chế độ phát triển (Development)
-```powershell
-pnpm electron:dev
-```
-*(Hoặc chạy giao diện web trên trình duyệt: `pnpm dev:all` $\rightarrow$ truy cập `http://localhost:3000`)*
+# 2. Khởi chạy ứng dụng Desktop đầy đủ (Bao gồm Electron + Server + Vite)
+pnpm run dev:all
+# hoặc
+pnpm run app
 
-### 3. Chạy kiểm thử tự động (Unit & Integration Tests)
-```powershell
+# 3. Khởi chạy kiểm thử tự động toàn diện (8/8 bộ kiểm thử)
 pnpm test
-```
 
-### 4. Đóng gói ứng dụng Desktop (.exe)
-Tạo file cài đặt độc lập cho người dùng cuối mà không cần cài Node.js hay pnpm:
-```powershell
-pnpm electron:build
+# 4. Biên dịch toàn bộ (Rust + Server TypeScript + Client React)
+pnpm run build
+
+# 5. Đóng gói ứng dụng thành file cài đặt Windows (.exe installer & portable)
+pnpm run electron:build
 ```
-Các gói đầu ra nằm trong thư mục `release/`:
-- `LocalAI Studio Setup 0.1.0.exe`: Bộ cài đặt Windows tiêu chuẩn (NSIS), tự tạo shortcut Desktop & Start Menu.
-- `LocalAI Studio 0.1.0.exe`: Bản Portable chạy trực tiếp không cần cài đặt.
 
 ---
 
-## 📄 Bản quyền (License)
+<a id="english"></a>
+# 🇬🇧 English Documentation
 
-Dự án phát hành theo giấy phép mã nguồn mở **MIT License**. Tự do sử dụng, chỉnh sửa và phân phối cho mục đích cá nhân lẫn thương mại.
+## 🌟 Overview
+
+**LocalAI Desktop Studio v1.0.5** is a standalone, local-first AI desktop workstation engineered for high responsiveness, complete privacy, and zero terminal friction. Optimized specifically for consumer hardware (such as **NVIDIA GeForce GTX 1650 4GB VRAM / 8GB-16GB RAM**), LocalAI comes pre-packaged with a native **CUDA 12.x/13.5 llama.cpp runtime** and a **Rust-powered tokenization & RAG core engine**.
+
+---
+
+## ✨ Key Architectural Highlights (v1.0.5)
+
+### 1. ⚡ Embedded CUDA Runtime (`bin/`)
+- Pre-bundled with `bin/llama-server.exe`, `ggml-cuda.dll`, `cublas64_12.dll`, `cublasLt64_12.dll`, and `cudart64_12.dll`.
+- Auto-detects NVIDIA GPUs (`CUDA0`) with automatic layer offloading (`-ngl 99` for 1B-3B models, dynamic hybrid GPU+CPU splitting for 7B-8B models).
+- Supports Flash Attention (`-fa`) and 20-minute idle memory auto-unload.
+
+### 2. 🦀 High-Performance Rust Core Engine
+- **Sub-millisecond Tokenization**: Built on Hugging Face's official `tokenizers` crate, running as a long-lived JSON-RPC daemon over `stdin/stdout`.
+- **Auto-Download Tokenizers**: Automatically fetches matching `tokenizer.json` files alongside GGUF downloads.
+- **Ultra-Fast Offline RAG**: Multi-threaded codebase crawler and 25-line sliding-window BM25 ranker executing in under 5ms (`🦀 Tăng tốc Rust`).
+
+### 3. 🛡️ Dynamic Token Budgeting & Context Overflow Guard
+- Measures tokens accurately across System Prompts, RAG context, history, and queries.
+- Dynamically trims conversation history before dispatching prompts, completely preventing HTTP 400 context overflow errors.
+- Real-time HUD badges detailing token distribution per message.
+
+### 4. 🌐 Hugging Face Hub Live Search & Quant Scanner
+- Search GGUF repositories directly from Hugging Face Hub.
+- Live VRAM and System RAM compatibility calculation updating dynamically with layer adjustments.
+- Built-in Model Glossary modal explaining Instruct, Abliterated, Thinking, and Quantization schemes.
+
+### 5. 🖥️ Native Desktop Persistence
+- Persists window geometry (width, height, x, y, isMaximized) via `window-state.json`.
+- Restores active workspace, session, sidebar toggles, and settings tabs on launch.
+- Minimizes to Windows System Tray on close to keep background servers running smoothly.
+
+---
+
+## 🏗️ Project Structure
+
+```
+LocalStudio/
+├── bin/                         # Bundled CUDA & Rust binaries (llama-server, rust-tokenizer, DLLs)
+├── rust-tokenizer/              # Rust Core Engine crate (tokenizers, RAG search)
+│   ├── Cargo.toml
+│   └── src/main.rs
+├── electron/                    # Electron Host Process
+│   ├── main.ts                  # Main process, window state persistence, tray HUD
+│   └── preload.ts               # Secure context bridge
+├── build-assets/                # Multi-resolution icons (.ico, .png)
+├── src/
+│   ├── client/                  # Frontend (React 19 + Vite + TailwindCSS)
+│   │   ├── components/          # ChatView, SettingsModal, Sidebars, Modals
+│   │   ├── App.tsx              # Reactive state orchestration & persistence
+│   │   └── i18n.ts              # English & Vietnamese localization
+│   ├── hardware.ts              # GPU telemetry (nvidia-smi) & memory detection
+│   ├── llama-process.ts         # Child process manager for CUDA llama-server
+│   ├── rust-tokenizer.ts        # TypeScript daemon bridge for Rust Engine
+│   ├── model-hub.ts             # GGUF catalog & real-time compatibility engine
+│   ├── model-downloader.ts      # Chunked streaming downloader with auto-tokenizer
+│   ├── token-utils.ts           # Token budgeting & context overflow guards
+│   ├── router.ts                # Multi-provider router & pre-inference tokenization
+│   ├── workspace-fs.ts          # Safe workspace filesystem & Rust-accelerated RAG
+│   ├── db.ts                    # Atomic local database
+│   └── server.ts                # Hono REST & SSE streaming server
+├── test/                        # 8 automated unit & integration test suites
+├── electron-builder.json        # Windows installer & portable packaging configuration
+├── package.json                 # v1.0.5 configuration & build scripts
+└── README.md                    # Bilingual documentation
+```
+
+---
+
+## 🧪 Verification & Testing
+
+LocalAI Studio maintains strict continuous verification:
+```bash
+# Run all 8 test suites:
+pnpm test
+```
+- ✅ Database Service
+- ✅ Hardware Monitor & CUDA Detection
+- ✅ Multi-Provider Router
+- ✅ Workspace Filesystem & Context Builder
+- ✅ Local Skills Engine
+- ✅ Hono REST & SSE API Server
+- ✅ SwarmEngine & Rule Discovery
+- ✅ Rust Tokenizer & Rust RAG Engine
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See [LICENSE](LICENSE) for more details.

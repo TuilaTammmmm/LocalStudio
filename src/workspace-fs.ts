@@ -335,4 +335,35 @@ export class WorkspaceFS {
 
     return filtered;
   }
+
+  /**
+   * Fast RAG Search powered by Rust Engine, with TypeScript fallback
+   */
+  public static async searchWorkspaceRAGAsync(
+    rootPath: string,
+    query: string,
+    maxResults = 8
+  ): Promise<{ results: RAGSearchResult[]; engine: 'rust' | 'ts' }> {
+    if (!rootPath || !fs.existsSync(rootPath) || !query || !query.trim()) {
+      return { results: [], engine: 'rust' };
+    }
+
+    try {
+      const { RustTokenizerService } = await import('./rust-tokenizer.js');
+      const rustRes = await RustTokenizerService.searchRAG(rootPath, query, maxResults);
+      if (rustRes.engine === 'rust' && rustRes.results.length > 0) {
+        return {
+          results: rustRes.results,
+          engine: 'rust',
+        };
+      }
+    } catch {}
+
+    // Fallback to TypeScript implementation
+    const fallbackResults = this.searchWorkspaceRAG(rootPath, query, maxResults);
+    return {
+      results: fallbackResults,
+      engine: 'ts',
+    };
+  }
 }

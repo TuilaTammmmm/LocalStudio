@@ -8,7 +8,6 @@ import {
   PanelRightOpen,
   PanelRightClose,
   Sparkles,
-  Compass,
   Folder,
   Settings,
   ChevronDown,
@@ -21,12 +20,11 @@ interface HeaderProps {
   activeWorkspace?: Workspace | null;
   hardwareStats: HardwareStats | null;
   isRightSidebarOpen: boolean;
-  autoRouteEnabled: boolean;
   isOnline?: boolean;
+  isStreaming?: boolean;
   lang?: Language;
   t?: Translations;
   onToggleLanguage?: (l: Language) => void;
-  onToggleAutoRoute: () => void;
   onSwitchProvider: (providerId: string) => void;
   onSelectModel: (modelName: string) => void;
   onToggleRightSidebar: () => void;
@@ -39,11 +37,10 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   activeWorkspace,
   hardwareStats,
   isRightSidebarOpen,
-  autoRouteEnabled,
   isOnline = true,
+  isStreaming = false,
   lang,
   t: propT,
-  onToggleAutoRoute,
   onSwitchProvider,
   onSelectModel,
   onToggleRightSidebar,
@@ -77,9 +74,8 @@ export const Header: React.FC<HeaderProps> = React.memo(({
     ? Math.round((hardwareStats.vramUsedMb / hardwareStats.vramTotalMb) * 100)
     : 8;
 
-  const currentModelDisplayName = autoRouteEnabled
-    ? (currentLang === 'vi' ? 'Định tuyến thông minh' : 'Smart Auto-Route')
-    : (activeProvider?.selectedModel || activeProvider?.name || 'Local llama.cpp');
+  const currentModelDisplayName =
+    activeProvider?.selectedModel || activeProvider?.name || 'Local llama.cpp';
 
   return (
     <header className="h-11 border-b border-[#30363d]/70 bg-[#161b22]/95 backdrop-blur-md px-3.5 flex items-center justify-between shrink-0 select-none z-30 shadow-sm relative">
@@ -119,16 +115,18 @@ export const Header: React.FC<HeaderProps> = React.memo(({
       <div className="relative" ref={dropdownRef}>
         <button
           type="button"
-          onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+          disabled={isStreaming}
+          onClick={() => !isStreaming && setIsModelDropdownOpen(!isModelDropdownOpen)}
+          title={isStreaming ? (currentLang === 'vi' ? 'Đang trả lời... Vui lòng đợi' : 'Generating response... Please wait') : undefined}
           className={`flex items-center space-x-2 px-3 py-1 rounded-lg text-xs font-medium border transition-all ${
-            isModelDropdownOpen
+            isStreaming
+              ? 'opacity-60 cursor-not-allowed bg-[#0d1117]/50 border-[#30363d] text-gray-400'
+              : isModelDropdownOpen
               ? 'bg-[#21262d] border-sky-500/50 text-white shadow-sm'
               : 'bg-[#0d1117]/80 hover:bg-[#21262d] border-[#30363d] text-gray-200'
           }`}
         >
-          {autoRouteEnabled ? (
-            <Compass className="w-3.5 h-3.5 text-amber-400 animate-spin-slow shrink-0" />
-          ) : activeProvider?.type === 'llama-server' ? (
+          {activeProvider?.type === 'llama-server' ? (
             <Zap className="w-3.5 h-3.5 text-sky-400 shrink-0" />
           ) : (
             <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -144,38 +142,15 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         {/* Dropdown Menu for Quick Model & Provider Switch */}
         {isModelDropdownOpen && (
           <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-72 p-1.5 rounded-xl bg-[#161b22] border border-[#30363d] shadow-2xl z-50 text-xs animate-fade-in backdrop-blur-xl">
-            {/* Auto-Route quick option */}
-            <div className="p-1 border-b border-[#30363d]/60 mb-1">
-              <button
-                type="button"
-                onClick={() => {
-                  onToggleAutoRoute();
-                  setIsModelDropdownOpen(false);
-                }}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors ${
-                  autoRouteEnabled
-                    ? 'bg-amber-500/15 text-amber-300 font-semibold'
-                    : 'text-gray-300 hover:bg-[#21262d] hover:text-white'
-                }`}
-              >
-                <div className="flex items-center space-x-2">
-                  <Compass className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span>{currentLang === 'vi' ? 'Định tuyến thông minh (Auto)' : 'Smart Auto-Route'}</span>
-                </div>
-                {autoRouteEnabled && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-              </button>
-            </div>
-
             {/* Providers List & Models (Only show enabled providers) */}
             <div className="max-h-60 overflow-y-auto space-y-1 py-0.5 custom-scrollbar">
               {providers.filter((p) => p.enabled !== false).map((p) => {
-                const isSelected = !autoRouteEnabled && activeProvider?.id === p.id;
+                const isSelected = activeProvider?.id === p.id;
                 return (
                   <div key={p.id} className="rounded-lg p-1">
                     <button
                       type="button"
                       onClick={() => {
-                        if (autoRouteEnabled) onToggleAutoRoute();
                         onSwitchProvider(p.id);
                         setIsModelDropdownOpen(false);
                       }}

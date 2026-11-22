@@ -40,6 +40,9 @@ export function startBackend(port: number = DEFAULT_PORT) {
   const cleanup = async () => {
     console.log('\nShutting down Local AI Backend Core...');
     await llamaManager.stopServer();
+    try {
+      db.close();
+    } catch {}
     server.close();
   };
 

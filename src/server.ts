@@ -15,6 +15,8 @@ import { ModelDownloaderService } from './model-downloader.js';
 import { getSmartModelPreset } from './model-presets.js';
 import { AppUpdater } from './updater.js';
 import { SwarmEngine } from './swarm-engine.js';
+import { RuntimeManager } from './runtime-manager.js';
+import { McpManager } from './mcp-manager.js';
 import { exec, spawn, execFile } from 'node:child_process';
 import util from 'node:util';
 import os from 'node:os';
@@ -61,9 +63,82 @@ export function createServer(
 ) {
   const app = new Hono();
   const hwMonitor = new HardwareMonitor();
+  const runtimeManager = new RuntimeManager();
+  const mcpManager = new McpManager(db);
   const swarmEngine = new SwarmEngine({ router, db });
 
   app.use('/*', cors());
+
+  // Engine Status, Manifest & On-demand Installer
+  app.get('/api/engine/status', async (c) => {
+    const status = await runtimeManager.getStatus();
+    return c.json(status);
+  });
+
+  app.get('/api/engine/manifest', (c) => {
+    return c.json({ runtimes: runtimeManager.getManifest() });
+  });
+
+  app.post('/api/engine/install', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await runtimeManager.downloadAndInstall(body.runtimeId);
+    return c.json(result, result.success ? 200 : 500);
+  });
+
+  // Model Context Protocol (MCP) Endpoints
+  app.get('/api/mcp/servers', (c) => {
+    return c.json({
+      servers: mcpManager.getServers(),
+      tools: mcpManager.getAllDiscoveredTools(),
+    });
+  });
+
+  app.post('/api/mcp/servers', async (c) => {
+    const body = await c.req.json();
+    if (!body.id || !body.name || !body.command) {
+      return c.json({ error: 'id, name, and command are required' }, 400);
+    }
+    const server = {
+      id: body.id,
+      name: body.name,
+      command: body.command,
+      args: body.args || [],
+      env: body.env || {},
+      enabled: body.enabled !== false,
+      status: 'disconnected' as const,
+    };
+    const updated = mcpManager.saveServer(server);
+    return c.json({ servers: updated });
+  });
+
+  app.delete('/api/mcp/servers/:id', (c) => {
+    const id = c.req.param('id');
+    const updated = mcpManager.deleteServer(id);
+    return c.json({ servers: updated });
+  });
+
+  app.post('/api/mcp/servers/:id/connect', async (c) => {
+    const id = c.req.param('id');
+    try {
+      const tools = await mcpManager.connectServer(id);
+      return c.json({ success: true, tools });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  app.post('/api/mcp/call', async (c) => {
+    const body = await c.req.json();
+    if (!body.serverId || !body.toolName) {
+      return c.json({ error: 'serverId and toolName are required' }, 400);
+    }
+    try {
+      const result = await mcpManager.callTool(body.serverId, body.toolName, body.arguments || {});
+      return c.json({ success: true, result });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
 
   // 1. Hardware Monitor & Smart Offload
   app.get('/api/hardware', async (c) => {
@@ -121,7 +196,10 @@ export function createServer(
       const evaluation = ModelHubService.evaluateCompatibility(
         model,
         stats.vramTotalMb || 4096,
-        stats.vramFreeMb || 3600
+        stats.vramFreeMb || 3600,
+        undefined,
+        stats.ramTotalMb,
+        stats.ramFreeMb
       );
       return {
         ...model,
@@ -268,6 +346,181 @@ export function createServer(
     const id = c.req.param('id');
     const canceled = ModelDownloaderService.cancelDownload(id);
     return c.json({ success: canceled });
+  });
+
+  // 1.3 Hugging Face Hub Direct Search & Quantization Explorer (LM Studio Style)
+  app.get('/api/hf/search', async (c) => {
+    const query = (c.req.query('q') || '').trim();
+    if (!query) {
+      return c.json({ results: [] });
+    }
+    const limit = parseInt(c.req.query('limit') || '15', 10);
+    try {
+      const hfUrl = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&limit=${limit}&sort=downloads&direction=-1`;
+      let res = await fetch(hfUrl, {
+        headers: { 'User-Agent': 'LocalAI-Studio/1.0' },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      // Resilient fallback if Hugging Face filter=gguf returns 500 or error
+      if (!res.ok) {
+        const fallbackUrl = `https://huggingface.co/api/models?search=${encodeURIComponent(query + ' gguf')}&limit=${limit}&sort=downloads&direction=-1`;
+        res = await fetch(fallbackUrl, {
+          headers: { 'User-Agent': 'LocalAI-Studio/1.0' },
+          signal: AbortSignal.timeout(10000),
+        });
+      }
+
+      if (!res.ok) {
+        return c.json(
+          {
+            error: `Máy chủ Hugging Face Hub phản hồi mã trạng thái ${res.status}. Vui lòng thử lại sau giây lát.`,
+            results: [],
+          },
+          200
+        );
+      }
+
+      const data: any = await res.json();
+      const results = (Array.isArray(data) ? data : []).map((item: any) => {
+        const id = item.id || item.modelId || '';
+        const author = id.includes('/') ? id.split('/')[0] : 'Community';
+        const name = id.includes('/') ? id.split('/')[1] : id;
+        return {
+          id,
+          author,
+          name,
+          downloads: item.downloads || 0,
+          likes: item.likes || 0,
+          tags: item.tags || [],
+          lastModified: item.lastModified || item.createdAt || '',
+          pipelineTag: item.pipeline_tag || '',
+        };
+      });
+      return c.json({ results });
+    } catch (err: any) {
+      console.error('[HF Hub Search Error]', err);
+      return c.json(
+        {
+          error: 'Không thể kết nối đến máy chủ Hugging Face Hub. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.',
+          results: [],
+        },
+        200
+      );
+    }
+  });
+
+  app.get('/api/hf/model-files', async (c) => {
+    const repo = (c.req.query('repo') || '').trim();
+    if (!repo) {
+      return c.json({ error: 'repo parameter is required', files: [] }, 400);
+    }
+    try {
+      // Clean repo path: Do NOT encode / to %2F as Hugging Face router requires /author/model
+      const cleanRepo = repo.replace(/^\/+|\/+$/g, '');
+      const safeRepoPath = cleanRepo.split('/').map(encodeURIComponent).join('/');
+
+      let files: any[] = [];
+      const treeRes = await fetch(`https://huggingface.co/api/models/${safeRepoPath}/tree/main?recursive=true`, {
+        headers: { 'User-Agent': 'LocalAI-Studio/1.0' },
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (treeRes.ok) {
+        const treeData: any = await treeRes.json();
+        if (Array.isArray(treeData)) {
+          files = treeData
+            .filter((item: any) => item.type === 'file' && item.path && item.path.toLowerCase().endsWith('.gguf'))
+            .map((item: any) => {
+              const filename = item.path.includes('/') ? item.path.split('/').pop() : item.path;
+              const sizeBytes = item.size || (item.lfs && item.lfs.size) || 0;
+              const sizeGb = Math.round((sizeBytes / (1024 * 1024 * 1024)) * 100) / 100;
+              const meta = parseModelMetadata(`https://huggingface.co/${cleanRepo}/resolve/main/${item.path}`);
+              return {
+                filename,
+                fullPath: item.path,
+                sizeBytes,
+                sizeGb: sizeGb || meta.estimatedGb,
+                quantization: meta.quantization,
+                parameterSize: meta.parameterSize,
+                category: meta.category,
+                downloadUrl: `https://huggingface.co/${cleanRepo}/resolve/main/${item.path}`,
+              };
+            });
+        }
+      }
+
+      if (files.length === 0) {
+        const detailRes = await fetch(`https://huggingface.co/api/models/${safeRepoPath}`, {
+          headers: { 'User-Agent': 'LocalAI-Studio/1.0' },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (detailRes.ok) {
+          const detailData: any = await detailRes.json();
+          const siblings = detailData.siblings || [];
+          files = siblings
+            .filter((s: any) => s.rfilename && s.rfilename.toLowerCase().endsWith('.gguf'))
+            .map((s: any) => {
+              const filename = s.rfilename.includes('/') ? s.rfilename.split('/').pop() : s.rfilename;
+              const meta = parseModelMetadata(`https://huggingface.co/${cleanRepo}/resolve/main/${s.rfilename}`);
+              return {
+                filename,
+                fullPath: s.rfilename,
+                sizeBytes: meta.fileSizeBytes,
+                sizeGb: meta.estimatedGb,
+                quantization: meta.quantization,
+                parameterSize: meta.parameterSize,
+                category: meta.category,
+                downloadUrl: `https://huggingface.co/${cleanRepo}/resolve/main/${s.rfilename}`,
+              };
+            });
+        }
+      }
+
+      return c.json({ repo: cleanRepo, files });
+    } catch (err: any) {
+      console.error('[HF Model Files Error]', err);
+      return c.json({ error: err.message || 'Không thể tải danh sách tệp từ Hugging Face', files: [] }, 200);
+    }
+  });
+
+  app.post('/api/hf/download', async (c) => {
+    const body = await c.req.json();
+    const { repo, filename, downloadUrl, sizeBytes, quantization, parameterSize, category } = body;
+    if (!downloadUrl || !filename) {
+      return c.json({ error: 'downloadUrl and filename are required' }, 400);
+    }
+
+    const modelName = body.name || filename.replace(/\.gguf$/i, '').replace(/[_-]/g, ' ');
+    const author = (repo && repo.includes('/')) ? repo.split('/')[0] : 'HuggingFace';
+    const id = `hf-${(repo || 'custom').replace(/[\/\s]/g, '-').toLowerCase()}-${filename.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()}`;
+
+    const hubItem: ModelHubItem = {
+      id,
+      name: modelName,
+      filename,
+      author,
+      description: `Mô hình Hugging Face từ ${repo || 'cộng đồng'} (${parameterSize || '7B'}, ${quantization || 'Q4_K_M'})`,
+      parameterSize: parameterSize || '7B',
+      quantization: quantization || 'Q4_K_M',
+      fileSizeBytes: Number(sizeBytes) || 4_000_000_000,
+      totalLayers: 32,
+      downloadUrl,
+      tags: ['HuggingFace', 'Hub', quantization || 'GGUF'],
+      category: category || 'general',
+    };
+
+    db.saveCustomHubModel(hubItem);
+
+    const task = await ModelDownloaderService.startDownload(
+      hubItem.id,
+      hubItem.name,
+      hubItem.fileSizeBytes,
+      hubItem.filename,
+      hubItem.downloadUrl
+    );
+
+    return c.json({ success: true, model: hubItem, task });
   });
 
   app.delete('/api/models/local/:filename', async (c) => {
@@ -470,18 +723,19 @@ export function createServer(
     }
   });
 
-  // 2.05 Offline RAG / Fast Code Retrieval across Workspace
-  app.get('/api/workspaces/:id/rag/search', (c) => {
+  // 2.05 Offline RAG / Fast Code Retrieval across Workspace (Rust Accelerated)
+  app.get('/api/workspaces/:id/rag/search', async (c) => {
     const id = c.req.param('id');
     const query = c.req.query('q') || '';
     const ws = db.getWorkspace(id);
     if (!ws) return c.json({ error: 'Workspace not found' }, 404);
 
-    const results = WorkspaceFS.searchWorkspaceRAG(ws.folderPath, query);
+    const { results, engine } = await WorkspaceFS.searchWorkspaceRAGAsync(ws.folderPath, query);
     return c.json({
       workspaceId: id,
       query,
       count: results.length,
+      engine,
       results,
     });
   });
@@ -1043,6 +1297,34 @@ $dlg.Dispose()
     const updated = db.setModelsDir(folderPath);
     ModelDownloaderService.setModelsDir(updated);
     return c.json({ models: updated });
+  });
+
+  app.get('/api/settings/model-dirs', (c) => {
+    return c.json({
+      defaultDir: db.getModelsDir(),
+      customDirs: db.getCustomModelDirs(),
+      allDirs: db.getAllModelDirs(),
+    });
+  });
+
+  app.post('/api/settings/model-dirs/add', async (c) => {
+    const body = await c.req.json();
+    const folderPath = body.folderPath;
+    if (!folderPath || typeof folderPath !== 'string') {
+      return c.json({ error: 'Valid folderPath is required' }, 400);
+    }
+    const updated = db.addCustomModelDir(folderPath);
+    return c.json({ customDirs: updated, allDirs: db.getAllModelDirs() });
+  });
+
+  app.post('/api/settings/model-dirs/remove', async (c) => {
+    const body = await c.req.json();
+    const folderPath = body.folderPath;
+    if (!folderPath || typeof folderPath !== 'string') {
+      return c.json({ error: 'Valid folderPath is required' }, 400);
+    }
+    const updated = db.removeCustomModelDir(folderPath);
+    return c.json({ customDirs: updated, allDirs: db.getAllModelDirs() });
   });
 
   // 11. Open in Windows Explorer (Instant detach without hanging)

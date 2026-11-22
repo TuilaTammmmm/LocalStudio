@@ -1,6 +1,6 @@
 {
   "name": "local-ai-studio",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "LocalAI Team",
   "description": "Local AI Core Backend - Process Manager, Multi-Provider Router & Skills Engine",
   "main": "dist-electron/main.cjs",
@@ -8,19 +8,23 @@
   "scripts": {
     "server": "tsx watch src/index.ts",
     "dev": "vite",
-    "dev:all": "concurrently \"tsx watch src/index.ts\" \"vite\"",
+    "dev:web": "concurrently \"tsx watch src/index.ts\" \"vite\"",
+    "dev:all": "pnpm run build:electron && concurrently -k \"tsx watch src/index.ts\" \"vite\" \"wait-on http://127.0.0.1:3000 && electron .\"",
+    "app": "pnpm run build:electron && concurrently -k \"tsx watch src/index.ts\" \"vite\" \"wait-on http://127.0.0.1:3000 && electron .\"",
+    "build:rust": "cargo build --release --manifest-path rust-tokenizer/Cargo.toml && node -e \"const fs = require('fs'); const src = 'rust-tokenizer/target/release/rust-tokenizer.exe'; if (fs.existsSync(src)) { fs.mkdirSync('bin', { recursive: true }); fs.copyFileSync(src, 'bin/rust-tokenizer.exe'); }\"",
     "build:server": "tsc",
     "build:client": "tsc -p tsconfig.client.json && vite build",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --target=node20 --outfile=dist-electron/main.cjs --external:electron && esbuild electron/preload.ts --bundle --platform=node --target=node20 --outfile=dist-electron/preload.cjs --external:electron",
-    "electron:dev": "pnpm run build:electron && concurrently -k \"pnpm dev\" \"wait-on http://127.0.0.1:3000 && electron .\"",
+    "electron:dev": "pnpm run build:electron && concurrently -k \"tsx watch src/index.ts\" \"vite\" \"wait-on http://127.0.0.1:3000 && electron .\"",
     "electron:start": "pnpm run build:electron && electron .",
     "electron:build": "pnpm build && pnpm run build:electron && electron-builder --config electron-builder.json",
-    "build": "tsc && tsc -p tsconfig.client.json && vite build",
+    "build": "pnpm run build:rust && tsc && tsc -p tsconfig.client.json && vite build",
     "start": "node dist/index.js",
-    "test": "tsx test/db.test.ts && tsx test/hardware.test.ts && tsx test/router.test.ts && tsx test/workspace.test.ts && tsx test/skills.test.ts && tsx test/api.test.ts && tsx test/auto-router.test.ts && tsx test/swarm.test.ts"
+    "test": "tsx test/db.test.ts && tsx test/hardware.test.ts && tsx test/router.test.ts && tsx test/workspace.test.ts && tsx test/skills.test.ts && tsx test/api.test.ts && tsx test/swarm.test.ts && tsx test/tokenizer.test.ts && tsx test/gguf.test.ts && tsx test/mcp.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
+    "better-sqlite3": "^13.2.0",
     "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
     "hono": "^4.7.4",
@@ -32,6 +36,7 @@
     "yaml": "^2.7.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/marked": "^6.0.0",
     "@types/node": "^22.13.9",
     "@types/react": "^19.0.10",

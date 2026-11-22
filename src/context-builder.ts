@@ -38,16 +38,16 @@ export class ContextBuilder {
     let totalTokens = 0;
 
     for (const relPath of relativeFilePaths) {
-      let fullPath = path.resolve(workspaceRoot, relPath);
+      let fullPath = path.isAbsolute(relPath) ? relPath : path.resolve(workspaceRoot, relPath);
 
-      // Prevent directory traversal attacks
-      if (!WorkspaceFS.isSafePath(workspaceRoot, relPath)) {
+      // Prevent directory traversal attacks for relative paths
+      if (!path.isAbsolute(relPath) && !WorkspaceFS.isSafePath(workspaceRoot, relPath)) {
         warnings.push(`Security: Ignored path outside workspace boundary: ${relPath}`);
         continue;
       }
 
       if (!fs.existsSync(fullPath)) {
-        // Fallback: search recursively by file name
+        // Fallback: search recursively by file name inside workspace
         const found = WorkspaceFS.findFileByName(workspaceRoot, path.basename(relPath));
         if (found && fs.existsSync(found)) {
           fullPath = found;

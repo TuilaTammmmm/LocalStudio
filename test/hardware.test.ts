@@ -1,5 +1,6 @@
 import { HardwareMonitor } from '../src/hardware.js';
 import { LlamaProcessManager } from '../src/llama-process.js';
+import { RuntimeManager } from '../src/runtime-manager.js';
 
 async function run() {
   console.log('Testing HardwareMonitor...');
@@ -26,7 +27,20 @@ async function run() {
   const status = manager.getStatus();
   console.log(`LlamaProcessManager initial status: running = ${status.isRunning}`);
 
-  console.log('✅ Phase 2 Hardware & Process Manager verification PASSED!');
+  // Test RuntimeManager detection & manifest
+  console.log('Testing RuntimeManager (Thin-Client Architecture)...');
+  const runtimeMgr = new RuntimeManager();
+  const recommended = await runtimeMgr.detectRecommendedRuntime();
+  console.log(`[RuntimeManager] Recommended runtime package: ${recommended}`);
+  const engineStatus = await runtimeMgr.getStatus();
+  console.log(`[RuntimeManager] Engine installed: ${engineStatus.installed}, Binary: ${engineStatus.binaryPath}`);
+  const manifest = runtimeMgr.getManifest();
+  console.log(`[RuntimeManager] Manifest package count: ${manifest.length}`);
+  if (manifest.length < 4) {
+    throw new Error('Expected at least 4 prebuilt runtime packages in manifest');
+  }
+
+  console.log('✅ Phase 2 Hardware & Runtime Manager verification PASSED!');
 }
 
 run().catch((err) => {
