@@ -179,7 +179,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = React.memo(
               className="w-full flex items-center justify-between px-3.5 py-2 text-xs bg-amber-500/5 hover:bg-amber-500/10 text-amber-300 transition-colors"
             >
               <div className="flex items-center space-x-2">
-                <Brain className="w-4 h-4 text-amber-400 animate-pulse-subtle" />
+                <Brain className="w-4 h-4 text-amber-400" />
                 <span className="font-semibold text-[11px] tracking-wide">Quá trình suy luận</span>
                 <span className="text-[10px] text-amber-400/70 font-mono bg-amber-500/10 px-1.5 py-0.2 rounded">
                   Đang suy luận

@@ -120,7 +120,7 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-fade-in select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 select-none">
       <div className="w-full max-w-lg bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl overflow-hidden glass-panel">
         {/* Header */}
         <div className="px-5 py-4 border-b border-[#30363d] flex items-center justify-between bg-black/20">
@@ -205,28 +205,21 @@ export const NewWorkspaceModal: React.FC<NewWorkspaceModalProps> = ({
           )}
 
           {/* Footer Actions */}
-          <div className="pt-3 border-t border-[#30363d]/60 flex items-center justify-between">
-            <div className="text-[11px] text-gray-500 flex items-center space-x-1">
-              <Sparkles className="w-3 h-3 text-amber-400" />
-              <span>Full local file index & git tools</span>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-3.5 py-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors font-medium"
-              >
-                {tr.cancel}
-              </button>
-              <button
-                type="submit"
-                disabled={!name.trim() || !folderPath.trim() || isPicking}
-                className="px-4 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-slate-950 font-semibold transition-all shadow-md shadow-sky-500/20"
-              >
-                {tr.createWorkspaceBtn}
-              </button>
-            </div>
+          <div className="pt-3 border-t border-[#30363d]/60 flex items-center justify-end space-x-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3.5 py-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-[#21262d] transition-colors font-medium"
+            >
+              {tr.cancel}
+            </button>
+            <button
+              type="submit"
+              disabled={!name.trim() || !folderPath.trim() || isPicking}
+              className="px-4 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-slate-950 font-semibold transition-all shadow-md shadow-sky-500/20"
+            >
+              {tr.createWorkspaceBtn}
+            </button>
           </div>
         </form>
       </div>

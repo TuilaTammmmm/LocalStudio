@@ -67,6 +67,9 @@ export function createServer(
   const mcpManager = new McpManager(db);
   const swarmEngine = new SwarmEngine({ router, db });
 
+  // Sync persisted models directory into downloader on server startup
+  ModelDownloaderService.setModelsDir(db.getModelsDir());
+
   app.use('/*', cors());
 
   // Engine Status, Manifest & On-demand Installer
@@ -83,6 +86,20 @@ export function createServer(
     const body = await c.req.json().catch(() => ({}));
     const result = await runtimeManager.downloadAndInstall(body.runtimeId);
     return c.json(result, result.success ? 200 : 500);
+  });
+
+  app.get('/api/engine/external', (c) => {
+    const engines = runtimeManager.discoverExternalEngines();
+    return c.json({ engines });
+  });
+
+  app.post('/api/engine/import-offline', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    if (!body.sourcePath) {
+      return c.json({ error: 'sourcePath is required' }, 400);
+    }
+    const result = await runtimeManager.importOfflineEngine(body.sourcePath);
+    return c.json(result, result.success ? 200 : 400);
   });
 
   // Model Context Protocol (MCP) Endpoints
@@ -311,12 +328,14 @@ export function createServer(
         } catch {}
       });
 
+      let isAborted = false;
       // Keep stream alive
       stream.onAbort(() => {
+        isAborted = true;
         unsubscribe();
       });
 
-      while (!stream.aborted) {
+      while (!isAborted && !stream.aborted) {
         await new Promise((r) => setTimeout(r, 1000));
       }
       unsubscribe();
@@ -346,6 +365,42 @@ export function createServer(
     const id = c.req.param('id');
     const canceled = ModelDownloaderService.cancelDownload(id);
     return c.json({ success: canceled });
+  });
+
+  app.post('/api/models/downloads/:id/pause', (c) => {
+    const id = c.req.param('id');
+    const paused = ModelDownloaderService.pauseDownload(id);
+    return c.json({ success: paused });
+  });
+
+  app.post('/api/models/downloads/:id/resume', async (c) => {
+    const id = c.req.param('id');
+    const resumed = await ModelDownloaderService.resumeDownload(id);
+    return c.json({ success: !!resumed, task: resumed });
+  });
+
+  app.post('/api/models/downloads/pause-all', (c) => {
+    const tasks = ModelDownloaderService.getTasks().filter((t) => t.status === 'downloading');
+    for (const t of tasks) {
+      ModelDownloaderService.pauseDownload(t.modelId);
+    }
+    return c.json({ success: true, count: tasks.length });
+  });
+
+  app.post('/api/models/downloads/resume-all', async (c) => {
+    const tasks = ModelDownloaderService.getTasks().filter((t) => t.status === 'paused');
+    for (const t of tasks) {
+      await ModelDownloaderService.resumeDownload(t.modelId);
+    }
+    return c.json({ success: true, count: tasks.length });
+  });
+
+  app.post('/api/models/downloads/cancel-all', (c) => {
+    const tasks = ModelDownloaderService.getTasks().filter((t) => t.status === 'downloading' || t.status === 'paused');
+    for (const t of tasks) {
+      ModelDownloaderService.cancelDownload(t.modelId);
+    }
+    return c.json({ success: true, count: tasks.length });
   });
 
   // 1.3 Hugging Face Hub Direct Search & Quantization Explorer (LM Studio Style)
@@ -541,13 +596,15 @@ export function createServer(
     }
 
     const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || 'C:\\';
-    const candidateDirs = [
-      db.getModelsDir(),
-      ModelDownloaderService.getModelsDir(),
-      path.join(home, 'LocalAI', 'models'),
-      path.resolve(process.cwd(), 'models'),
-      path.join(os.tmpdir(), 'models'),
-    ];
+    const candidateDirs = Array.from(
+      new Set([
+        ...db.getAllModelDirs(),
+        ModelDownloaderService.getModelsDir(),
+        path.join(home, 'LocalAI', 'models'),
+        path.resolve(process.cwd(), 'models'),
+        path.join(os.tmpdir(), 'models'),
+      ])
+    );
 
     let deleted = false;
     let deletedPath = '';
@@ -631,6 +688,38 @@ export function createServer(
     return c.json(ws);
   });
 
+  app.post('/api/workspaces/open-folder', async (c) => {
+    try {
+      const body = await c.req.json();
+      const folderPath = (body.folderPath || '').trim();
+      if (!folderPath) {
+        return c.json({ error: 'Đường dẫn thư mục không được để trống' }, 400);
+      }
+      if (!fs.existsSync(folderPath)) {
+        return c.json({ error: `Thư mục không tồn tại: ${folderPath}` }, 400);
+      }
+      const stat = fs.statSync(folderPath);
+      if (!stat.isDirectory()) {
+        return c.json({ error: `Đường dẫn không phải là thư mục: ${folderPath}` }, 400);
+      }
+
+      const folderName = path.basename(folderPath) || 'My Workspace';
+      const ws = db.saveWorkspace({
+        id: `ws-${Date.now()}`,
+        name: folderName,
+        folderPath,
+        systemPrompt: '',
+        pinnedFiles: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return c.json(ws);
+    } catch (err: any) {
+      console.error('[Open Folder Workspace Error]', err);
+      return c.json({ error: err.message || 'Lỗi khi mở thư mục dự án' }, 500);
+    }
+  });
+
   app.delete('/api/workspaces/:id', (c) => {
     const id = c.req.param('id');
     db.deleteWorkspace(id);
@@ -647,6 +736,9 @@ export function createServer(
     }
     if (body.systemPrompt !== undefined) {
       ws.systemPrompt = body.systemPrompt;
+    }
+    if (Array.isArray(body.pinnedFiles)) {
+      ws.pinnedFiles = body.pinnedFiles.filter((f: unknown): f is string => typeof f === 'string');
     }
     const updated = db.saveWorkspace(ws);
     return c.json(updated);
@@ -777,7 +869,7 @@ export function createServer(
           previousContent = fs.readFileSync(fullTargetPath, 'utf-8');
           const backupDir = path.join(ws.folderPath, '.localai', 'backups');
           if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-          const safeBackupName = `${relPath.replace(/[/\\]/g, '_')}.${Date.now()}.bak`;
+          const safeBackupName = `${relPath.replace(/[/\\:]/g, '_')}.${Date.now()}.bak`;
           fs.writeFileSync(path.join(backupDir, safeBackupName), previousContent, 'utf-8');
         } catch {}
       }
@@ -967,10 +1059,10 @@ export function createServer(
       effectiveSystemPrompt = `${CONCISE_DIRECTIVE}\n\n${effectiveSystemPrompt}`.trim();
     }
 
-    // Context bundle from tagged workspace files
+    // Context bundle from tagged workspace files or external dropped files (supports No-Project mode)
     let loadedContextFiles: Array<{ path: string; content: string }> = [];
-    if (ws && Array.isArray(contextFiles) && contextFiles.length > 0) {
-      const bundle = ContextBuilder.buildContext(ws.folderPath, contextFiles);
+    if (Array.isArray(contextFiles) && contextFiles.length > 0) {
+      const bundle = ContextBuilder.buildContext(ws?.folderPath || '', contextFiles);
       loadedContextFiles = bundle.files.map((f) => ({
         path: f.relativePath,
         content: f.content,
@@ -1195,29 +1287,74 @@ export function createServer(
     const workingDir = cwd && fs.existsSync(cwd) ? cwd : process.cwd();
     const start = Date.now();
     const chosenShell = shell === 'cmd' ? 'cmd.exe' : shell === 'bash' ? 'bash.exe' : 'powershell.exe';
+    const signal = c.req.raw.signal;
 
-    try {
-      const { stdout, stderr } = await execAsync(command, {
-        cwd: workingDir,
-        shell: chosenShell,
-        timeout: 30000,
-        maxBuffer: 1024 * 1024 * 4,
-      });
+    return new Promise<Response>((resolve) => {
+      let settled = false;
+      const child = exec(
+        command,
+        {
+          cwd: workingDir,
+          shell: chosenShell,
+          timeout: 30000,
+          maxBuffer: 1024 * 1024 * 4,
+          windowsHide: true,
+        },
+        (err, stdout, stderr) => {
+          if (settled) return;
+          settled = true;
+          signal?.removeEventListener('abort', onAbort);
 
-      return c.json({
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        exitCode: 0,
-        durationMs: Date.now() - start,
-      });
-    } catch (err: any) {
-      return c.json({
-        stdout: err.stdout?.trim() || '',
-        stderr: err.stderr?.trim() || err.message,
-        exitCode: err.code || 1,
-        durationMs: Date.now() - start,
-      });
-    }
+          if (!err) {
+            resolve(
+              c.json({
+                stdout: (stdout || '').trim(),
+                stderr: (stderr || '').trim(),
+                exitCode: 0,
+                durationMs: Date.now() - start,
+              })
+            );
+          } else {
+            resolve(
+              c.json({
+                stdout: (stdout || '').trim(),
+                stderr: (stderr || '').trim() || err.message,
+                exitCode: (err as any).code || 1,
+                durationMs: Date.now() - start,
+              })
+            );
+          }
+        }
+      );
+
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        if (child.pid) {
+          if (process.platform === 'win32') {
+            exec(`taskkill /PID ${child.pid} /T /F`, () => {});
+          } else {
+            try {
+              child.kill('SIGKILL');
+            } catch {}
+          }
+        }
+        resolve(
+          c.json({
+            stdout: '',
+            stderr: '^C (Aborted by client)',
+            exitCode: 130,
+            durationMs: Date.now() - start,
+          })
+        );
+      };
+
+      if (signal?.aborted) {
+        onAbort();
+      } else {
+        signal?.addEventListener('abort', onAbort, { once: true });
+      }
+    });
   });
 
   // 9. App Version & Update Engine

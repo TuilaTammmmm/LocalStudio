@@ -75,6 +75,19 @@ export const api = {
     return res.json();
   },
 
+  async openFolderWorkspace(folderPath: string): Promise<Workspace> {
+    const res = await fetch(`${API_BASE}/workspaces/open-folder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderPath }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to open folder workspace');
+    }
+    return res.json();
+  },
+
   async deleteWorkspace(id: string): Promise<void> {
     await fetch(`${API_BASE}/workspaces/${id}`, { method: 'DELETE' });
   },
@@ -222,6 +235,87 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderPath }),
+    });
+    return res.json();
+  },
+
+  // Downloads
+  async getDownloads(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/models/downloads`);
+    return res.json();
+  },
+
+  async startDownload(payload: {
+    modelId: string;
+    modelName: string;
+    fileSizeBytes?: number;
+    filename?: string;
+    downloadUrl?: string;
+  }): Promise<any> {
+    const res = await fetch(`${API_BASE}/models/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async pauseDownload(modelId: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/models/downloads/${encodeURIComponent(modelId)}/pause`, {
+      method: 'POST',
+    });
+    return res.json();
+  },
+
+  async resumeDownload(modelId: string): Promise<{ success: boolean; task?: any }> {
+    const res = await fetch(`${API_BASE}/models/downloads/${encodeURIComponent(modelId)}/resume`, {
+      method: 'POST',
+    });
+    return res.json();
+  },
+
+  async cancelDownload(modelId: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/models/downloads/${encodeURIComponent(modelId)}/cancel`, {
+      method: 'POST',
+    });
+    return res.json();
+  },
+
+  async pauseAllDownloads(): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/models/downloads/pause-all`, { method: 'POST' });
+    return res.json();
+  },
+
+  async resumeAllDownloads(): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/models/downloads/resume-all`, { method: 'POST' });
+    return res.json();
+  },
+
+  async cancelAllDownloads(): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/models/downloads/cancel-all`, { method: 'POST' });
+    return res.json();
+  },
+
+  // Engine External Discovery & Offline Import
+  async getExternalEngines(): Promise<{
+    engines: Array<{
+      id: string;
+      name: string;
+      type: string;
+      binaryPath: string;
+      baseUrl?: string;
+      available: boolean;
+    }>;
+  }> {
+    const res = await fetch(`${API_BASE}/engine/external`);
+    return res.json();
+  },
+
+  async importOfflineEngine(sourcePath: string): Promise<{ success: boolean; binaryPath?: string; error?: string }> {
+    const res = await fetch(`${API_BASE}/engine/import-offline`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourcePath }),
     });
     return res.json();
   },

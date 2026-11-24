@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FolderOpen,
   Plus,
@@ -17,6 +17,10 @@ import {
   Trash2,
   Zap,
   HelpCircle,
+  Cpu,
+  Pause,
+  Play,
+  AlertCircle,
 } from 'lucide-react';
 import { ModelHubService, parseModelMetadata, type ModelHubItem } from '../../../model-hub.js';
 import type { ProviderConfig, HardwareStats } from '../../../types.js';
@@ -94,6 +98,122 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
   }>>([]);
   const [hfFilesLoading, setHfFilesLoading] = useState(false);
   const [hfDownloadingFiles, setHfDownloadingFiles] = useState<Record<string, boolean>>({});
+
+  // Multi-download queue state
+  const [downloadTasks, setDownloadTasks] = useState<Array<{
+    modelId: string;
+    name: string;
+    status: 'idle' | 'downloading' | 'paused' | 'completed' | 'error';
+    progressPercent: number;
+    downloadedBytes: number;
+    totalBytes: number;
+    speedMbps: number;
+    filePath?: string;
+    downloadUrl?: string;
+    filename?: string;
+    error?: string;
+  }>>([]);
+  const [showDownloadManager, setShowDownloadManager] = useState(false);
+
+  // Polling active download tasks across all models
+  useEffect(() => {
+    let timer: any = null;
+    let isMounted = true;
+
+    const fetchTasks = async () => {
+      try {
+        const res = await fetch(getApiUrl('/api/models/downloads'));
+        if (res.ok && isMounted) {
+          const tasks: any[] = await res.json();
+          setDownloadTasks(tasks);
+
+          const hasActive = tasks.some((t) => t.status === 'downloading');
+          const hasCompleted = tasks.some((t) => t.status === 'completed');
+          if (hasCompleted && onSyncProvider) {
+            onSyncProvider('local-llama');
+          }
+
+          if (hasActive) {
+            timer = setTimeout(fetchTasks, 600);
+          } else if (tasks.some((t) => t.status === 'paused')) {
+            timer = setTimeout(fetchTasks, 1500);
+          }
+        }
+      } catch {}
+    };
+
+    fetchTasks();
+
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [onSyncProvider]);
+
+  const activeDownloads = downloadTasks.filter((t) => t.status === 'downloading');
+  const pausedDownloads = downloadTasks.filter((t) => t.status === 'paused');
+  const allActiveTasks = downloadTasks.filter(
+    (t) => t.status === 'downloading' || t.status === 'paused' || t.status === 'error'
+  );
+  const activeDownloadsCount = activeDownloads.length;
+
+  // Multi-download control handlers
+  const handlePauseDownload = async (modelId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      await fetch(getApiUrl(`/api/models/downloads/${encodeURIComponent(modelId)}/pause`), {
+        method: 'POST',
+      });
+      const res = await fetch(getApiUrl('/api/models/downloads'));
+      if (res.ok) setDownloadTasks(await res.json());
+    } catch {}
+  };
+
+  const handleResumeDownload = async (modelId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      await fetch(getApiUrl(`/api/models/downloads/${encodeURIComponent(modelId)}/resume`), {
+        method: 'POST',
+      });
+      const res = await fetch(getApiUrl('/api/models/downloads'));
+      if (res.ok) setDownloadTasks(await res.json());
+    } catch {}
+  };
+
+  const handleCancelDownload = async (modelId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      await fetch(getApiUrl(`/api/models/downloads/${encodeURIComponent(modelId)}/cancel`), {
+        method: 'POST',
+      });
+      const res = await fetch(getApiUrl('/api/models/downloads'));
+      if (res.ok) setDownloadTasks(await res.json());
+    } catch {}
+  };
+
+  const handlePauseAll = async () => {
+    try {
+      await fetch(getApiUrl('/api/models/downloads/pause-all'), { method: 'POST' });
+      const res = await fetch(getApiUrl('/api/models/downloads'));
+      if (res.ok) setDownloadTasks(await res.json());
+    } catch {}
+  };
+
+  const handleResumeAll = async () => {
+    try {
+      await fetch(getApiUrl('/api/models/downloads/resume-all'), { method: 'POST' });
+      const res = await fetch(getApiUrl('/api/models/downloads'));
+      if (res.ok) setDownloadTasks(await res.json());
+    } catch {}
+  };
+
+  const handleCancelAll = async () => {
+    try {
+      await fetch(getApiUrl('/api/models/downloads/cancel-all'), { method: 'POST' });
+      const res = await fetch(getApiUrl('/api/models/downloads'));
+      if (res.ok) setDownloadTasks(await res.json());
+    } catch {}
+  };
 
   const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
 
@@ -185,7 +305,6 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
   };
 
   const handleDownloadHfFile = async (repoId: string, file: any) => {
-    setHfDownloadingFiles((prev) => ({ ...prev, [file.filename]: true }));
     try {
       const res = await fetch(getApiUrl('/api/hf/download'), {
         method: 'POST',
@@ -201,43 +320,19 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
         }),
       });
       if (res.ok) {
-        const data = await res.json();
         const hubRes = await fetch(getApiUrl('/api/models/hub'));
         if (hubRes.ok) {
           const hubData = await hubRes.json();
           setHubModels(hubData.models || []);
         }
-        const modelId = data.model?.id;
-        if (modelId) {
-          const interval = setInterval(async () => {
-            const pollRes = await fetch(getApiUrl('/api/models/downloads'));
-            if (pollRes.ok) {
-              const tasks: any[] = await pollRes.json();
-              const myTask = tasks.find((t) => t.modelId === modelId);
-              if (myTask) {
-                if (myTask.status === 'completed' || myTask.status === 'error') {
-                  clearInterval(interval);
-                  setHfDownloadingFiles((prev) => {
-                    const copy = { ...prev };
-                    delete copy[file.filename];
-                    return copy;
-                  });
-                  if (onSyncProvider) {
-                    onSyncProvider('local-llama');
-                  }
-                }
-              }
-            }
-          }, 800);
+        // Instantly refresh tasks queue
+        const pollRes = await fetch(getApiUrl('/api/models/downloads'));
+        if (pollRes.ok) {
+          setDownloadTasks(await pollRes.json());
         }
       }
     } catch (err) {
-      console.error('Download HF error:', err);
-      setHfDownloadingFiles((prev) => {
-        const copy = { ...prev };
-        delete copy[file.filename];
-        return copy;
-      });
+      console.error('Failed to start HF download:', err);
     }
   };
 
@@ -252,6 +347,167 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
             {currentLang === 'vi' ? 'Kho Mô Hình GGUF' : 'GGUF Model Hub'}
           </span>
           <div className="flex items-center space-x-1.5">
+            {/* Multi-Download Queue Manager Button & Popover */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowDownloadManager(!showDownloadManager)}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors ${
+                  activeDownloadsCount > 0
+                    ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+                    : allActiveTasks.length > 0
+                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                    : 'bg-[#21262d] hover:bg-[#30363d] border-[#30363d] text-gray-300 hover:text-white'
+                }`}
+                title={currentLang === 'vi' ? 'Quản lý tiến trình tải mô hình' : 'Model Download Manager'}
+              >
+                <Download className={`w-3.5 h-3.5 ${activeDownloadsCount > 0 ? 'text-sky-400' : 'text-gray-400'}`} />
+                <span>{currentLang === 'vi' ? 'Đang tải' : 'Downloads'}</span>
+                {allActiveTasks.length > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold ${
+                      activeDownloadsCount > 0 ? 'bg-sky-500 text-slate-950' : 'bg-amber-500 text-slate-950'
+                    }`}
+                  >
+                    {allActiveTasks.length}
+                  </span>
+                )}
+              </button>
+
+              {/* Download Manager Popover */}
+              {showDownloadManager && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40 cursor-default"
+                    onClick={() => setShowDownloadManager(false)}
+                  />
+                  <div className="absolute left-0 top-full mt-2 w-80 sm:w-96 bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
+                    {/* Popover Header */}
+                    <div className="p-3 bg-[#0d1117] border-b border-[#30363d] flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Download className="w-4 h-4 text-sky-400" />
+                        <span className="text-xs font-bold text-white">
+                          {currentLang === 'vi' ? 'Quản lý Tải Mô hình' : 'Download Manager'}
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-400">
+                          ({allActiveTasks.length})
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        {activeDownloads.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handlePauseAll}
+                            className="text-[10px] px-2 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] text-amber-300 border border-amber-500/30"
+                            title="Tạm dừng tất cả"
+                          >
+                            {currentLang === 'vi' ? 'Dừng hết' : 'Pause All'}
+                          </button>
+                        )}
+                        {pausedDownloads.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleResumeAll}
+                            className="text-[10px] px-2 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] text-sky-300 border border-sky-500/30"
+                            title="Tiếp tục tất cả"
+                          >
+                            {currentLang === 'vi' ? 'Tiếp tục hết' : 'Resume All'}
+                          </button>
+                        )}
+                        {allActiveTasks.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleCancelAll}
+                            className="text-[10px] px-2 py-0.5 rounded bg-white/[0.05] hover:bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                            title="Hủy tất cả"
+                          >
+                            {currentLang === 'vi' ? 'Hủy hết' : 'Cancel All'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Task List */}
+                    <div className="max-h-72 overflow-y-auto p-2 space-y-2 custom-scrollbar">
+                      {allActiveTasks.length === 0 ? (
+                        <div className="p-4 text-center text-gray-400 text-xs">
+                          {currentLang === 'vi' ? 'Hiện không có mô hình nào đang tải.' : 'No active downloads.'}
+                        </div>
+                      ) : (
+                        allActiveTasks.map((t) => {
+                          const isDownloading = t.status === 'downloading';
+                          const isPaused = t.status === 'paused';
+                          const isError = t.status === 'error';
+
+                          return (
+                            <div
+                              key={t.modelId}
+                              className="p-2.5 rounded-xl bg-black/40 border border-white/10 space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-xs text-white truncate max-w-[200px]" title={t.name}>
+                                  {t.name}
+                                </span>
+                                <div className="flex items-center space-x-1 shrink-0">
+                                  {isDownloading && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handlePauseDownload(t.modelId, e)}
+                                      className="p-1 rounded-md bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors"
+                                      title={currentLang === 'vi' ? 'Tạm dừng tải' : 'Pause'}
+                                    >
+                                      <Pause className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  {isPaused && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleResumeDownload(t.modelId, e)}
+                                      className="p-1 rounded-md bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 transition-colors"
+                                      title={currentLang === 'vi' ? 'Tiếp tục tải' : 'Resume'}
+                                    >
+                                      <Play className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCancelDownload(t.modelId, e)}
+                                    className="p-1 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-colors"
+                                    title={currentLang === 'vi' ? 'Hủy tải và xóa tệp tạm' : 'Cancel download'}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[10px] font-mono text-gray-400">
+                                <span className="truncate max-w-[170px]">{t.filename || t.modelId}</span>
+                                <span>
+                                  {isDownloading && `${t.progressPercent}% • ${t.speedMbps} MB/s`}
+                                  {isPaused && `${currentLang === 'vi' ? 'Đã tạm dừng' : 'Paused'} (${t.progressPercent}%)`}
+                                  {isError && (currentLang === 'vi' ? 'Lỗi kết nối' : 'Error')}
+                                </span>
+                              </div>
+
+                              {/* Progress bar */}
+                              <div className="w-full h-1.5 bg-[#21262d] rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full transition-all duration-200 ${
+                                    isPaused ? 'bg-amber-400' : isError ? 'bg-rose-500' : 'bg-sky-500'
+                                  }`}
+                                  style={{ width: `${t.progressPercent}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={() => setIsGlossaryOpen(true)}
@@ -379,8 +635,10 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
 
                 const renderCard = (m: EnrichedModelItem, onDisk: boolean) => {
                   const isSelected = selectedHubModel?.id === m.id;
-                  const isDownloading = downloadingId === m.id;
-                  const progress = downloadProgress[m.id] || 0;
+                  const task = downloadTasks.find((t) => t.modelId === m.id || t.filename === m.filename);
+                  const isDownloading = task?.status === 'downloading' || downloadingId === m.id;
+                  const isPaused = task?.status === 'paused';
+                  const progress = task ? task.progressPercent : downloadProgress[m.id] || 0;
                   // Dynamic evaluation for this card right now!
                   const dynamicComp = computeModelCompatibility(m);
 
@@ -423,14 +681,76 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
                       </div>
 
                       {isDownloading && (
-                        <div className="mt-2 space-y-1">
-                          <div className="flex justify-between text-[10px] text-sky-400 font-mono">
-                            <span>Đang tải xuống...</span>
-                            <span>{progress}%</span>
+                        <div className="mt-2 space-y-1.5 p-2 rounded-lg bg-sky-500/10 border border-sky-500/30">
+                          <div className="flex items-center justify-between text-[10px] text-sky-400 font-mono">
+                            <span className="flex items-center space-x-1 truncate mr-2">
+                              <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+                              <span>{currentLang === 'vi' ? 'Đang tải' : 'Downloading'}</span>
+                              {task?.speedMbps ? <span>({task.speedMbps} MB/s)</span> : null}
+                            </span>
+                            <div className="flex items-center space-x-1.5 shrink-0">
+                              <span className="font-bold">{progress}%</span>
+                              {task && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handlePauseDownload(task.modelId, e)}
+                                    className="p-1 hover:bg-sky-500/20 rounded text-sky-300 transition-colors"
+                                    title={currentLang === 'vi' ? 'Tạm dừng tải' : 'Pause download'}
+                                  >
+                                    <Pause className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCancelDownload(task.modelId, e)}
+                                    className="p-1 hover:bg-rose-500/20 rounded text-rose-400 transition-colors"
+                                    title={currentLang === 'vi' ? 'Hủy tải' : 'Cancel download'}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                           <div className="w-full h-1.5 bg-[#21262d] rounded-full overflow-hidden">
                             <div
                               className="h-full bg-sky-500 transition-all duration-200"
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {isPaused && task && (
+                        <div className="mt-2 space-y-1.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                          <div className="flex items-center justify-between text-[10px] text-amber-400 font-mono">
+                            <span className="flex items-center space-x-1 truncate mr-2">
+                              <Pause className="w-3 h-3 shrink-0" />
+                              <span>{currentLang === 'vi' ? 'Đã tạm dừng' : 'Paused'}</span>
+                            </span>
+                            <div className="flex items-center space-x-1.5 shrink-0">
+                              <span className="font-bold">{progress}%</span>
+                              <button
+                                type="button"
+                                onClick={(e) => handleResumeDownload(task.modelId, e)}
+                                className="p-1 hover:bg-amber-500/20 rounded text-amber-300 transition-colors"
+                                title={currentLang === 'vi' ? 'Tiếp tục tải' : 'Resume download'}
+                              >
+                                <Play className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleCancelDownload(task.modelId, e)}
+                                className="p-1 hover:bg-rose-500/20 rounded text-rose-400 transition-colors"
+                                title={currentLang === 'vi' ? 'Hủy tải' : 'Cancel download'}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="w-full h-1.5 bg-[#21262d] rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-amber-500 transition-all duration-200"
                               style={{ width: `${progress}%` }}
                             />
                           </div>
@@ -649,6 +969,94 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
                 })()}
               </div>
 
+              {/* Hardware Compatibility & Sufficiency Verdict HUD (Synchronized with Local Hub) */}
+              {(() => {
+                const vramFree = (hardwareStats?.vramFreeMb || 3600) / 1024;
+                const vramTotal = (hardwareStats?.vramTotalMb || 4096) / 1024;
+                const ramTotal = (hardwareStats?.ramTotalMb || 8192) / 1024;
+                const ramFree = (hardwareStats?.ramFreeMb || 4096) / 1024;
+                const gpuName = hardwareStats?.gpuName || 'NVIDIA GeForce GPU';
+
+                const smallestQuant = hfRepoFiles.reduce(
+                  (min, f) => (f.sizeGb < min ? f.sizeGb : min),
+                  hfRepoFiles.length > 0 ? hfRepoFiles[0].sizeGb : 999
+                );
+                const standardQuant = hfRepoFiles.find(
+                  (f) => f.quantization.toLowerCase().includes('q4_k_m') || f.quantization.toLowerCase() === 'q4_0'
+                ) || (hfRepoFiles.length > 0 ? hfRepoFiles[0] : null);
+
+                const hasGpuFit = smallestQuant <= vramFree * 0.9;
+                const hasHybridFit = standardQuant ? standardQuant.sizeGb <= (vramFree + ramFree) * 0.9 : true;
+
+                return (
+                  <div className="p-4 rounded-2xl bg-[#161b22] border border-[#30363d] space-y-3 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Cpu className="w-4 h-4 text-sky-400" />
+                        <span className="text-xs font-bold text-gray-200">
+                          {currentLang === 'vi' ? 'Khả năng đáp ứng phần cứng hệ thống' : 'Hardware Sufficiency & Compatibility'}
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[11px] font-mono px-2.5 py-0.5 rounded-full border font-semibold ${
+                          hasGpuFit
+                            ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30'
+                            : hasHybridFit
+                            ? 'text-amber-300 bg-amber-500/10 border-amber-500/30'
+                            : 'text-rose-300 bg-rose-500/10 border-rose-500/30'
+                        }`}
+                      >
+                        {hasGpuFit
+                          ? (currentLang === 'vi' ? '100% GPU Sẵn sàng' : '100% GPU Ready')
+                          : hasHybridFit
+                          ? (currentLang === 'vi' ? 'Hybrid CUDA+CPU' : 'Hybrid Offload')
+                          : (currentLang === 'vi' ? 'Thiếu RAM / VRAM' : 'Low Memory')}
+                      </span>
+                    </div>
+
+                    {/* Hardware Metrics Chips */}
+                    <div className="grid grid-cols-3 gap-2 text-center font-mono text-[11px]">
+                      <div className="p-2 rounded-xl bg-[#0d1117] border border-[#30363d]">
+                        <span className="text-gray-400 block text-[10px]">GPU & VRAM trống</span>
+                        <span className="text-white font-bold">{vramFree.toFixed(1)} GB / {vramTotal.toFixed(1)} GB</span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-[#0d1117] border border-[#30363d]">
+                        <span className="text-gray-400 block text-[10px]">RAM hệ thống</span>
+                        <span className="text-white font-bold">{ramFree.toFixed(1)} GB trống / {ramTotal.toFixed(0)} GB</span>
+                      </div>
+                      <div className="p-2 rounded-xl bg-[#0d1117] border border-[#30363d]">
+                        <span className="text-gray-400 block text-[10px]">Khuyên dùng (Q4_K_M)</span>
+                        <span className="text-emerald-400 font-bold">{standardQuant ? `${standardQuant.sizeGb} GB` : '~4.5 GB'}</span>
+                      </div>
+                    </div>
+
+                    {/* Sufficiency Verdict Banner */}
+                    <div
+                      className={`p-2.5 rounded-xl border text-xs flex items-center justify-between ${
+                        hasGpuFit
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                          : hasHybridFit
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                          : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                      }`}
+                    >
+                      <span className="font-semibold flex items-center space-x-1.5">
+                        <span>
+                          {hasGpuFit
+                            ? '✓ Đủ tài nguyên: GPU của bạn đáp ứng tốt mô hình này với tốc độ cao.'
+                            : hasHybridFit
+                            ? '⚡ Chế độ Hybrid: Nạp một phần layers vào VRAM, phần còn lại chạy trên CPU + RAM.'
+                            : '⚠️ Cảnh báo: Mô hình này vượt quá dung lượng RAM + VRAM trống của máy.'}
+                        </span>
+                      </span>
+                      <span className="text-[11px] font-mono shrink-0 ml-2">
+                        {gpuName}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold text-gray-200 flex items-center space-x-1.5">
@@ -699,7 +1107,13 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
                       const isDownloaded = localModels.some(
                         (m) => m.toLowerCase() === file.filename.toLowerCase()
                       );
-                      const isDownloading = !!hfDownloadingFiles[file.filename];
+                      const task = downloadTasks.find(
+                        (t) =>
+                          t.filename?.toLowerCase() === file.filename.toLowerCase() ||
+                          t.downloadUrl === file.downloadUrl
+                      );
+                      const isDownloading = task?.status === 'downloading' || !!hfDownloadingFiles[file.filename];
+                      const isPaused = task?.status === 'paused';
 
                       let hardwareBadge = {
                         label: '100% GPU (~60-120 t/s)',
@@ -744,7 +1158,7 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
                             </div>
                           </div>
 
-                          <div className="shrink-0">
+                          <div className="shrink-0 flex items-center space-x-1.5">
                             {isDownloaded ? (
                               <button
                                 disabled
@@ -753,6 +1167,52 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 <span>{currentLang === 'vi' ? 'Đã có trên máy' : 'Downloaded'}</span>
                               </button>
+                            ) : task?.status === 'downloading' ? (
+                              <div className="flex items-center space-x-1 bg-sky-500/15 border border-sky-500/30 px-2.5 py-1 rounded-lg">
+                                <RefreshCw className="w-3 h-3 text-sky-400 animate-spin" />
+                                <span className="text-[11px] font-mono text-sky-300 font-bold mr-1">
+                                  {task.progressPercent}%
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handlePauseDownload(task.modelId, e)}
+                                  className="p-1 hover:bg-sky-500/20 rounded text-sky-300 transition-colors"
+                                  title={currentLang === 'vi' ? 'Tạm dừng tải' : 'Pause download'}
+                                >
+                                  <Pause className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCancelDownload(task.modelId, e)}
+                                  className="p-1 hover:bg-rose-500/20 rounded text-rose-400 transition-colors"
+                                  title={currentLang === 'vi' ? 'Hủy tải' : 'Cancel download'}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : isPaused && task ? (
+                              <div className="flex items-center space-x-1 bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 rounded-lg">
+                                <Pause className="w-3 h-3 text-amber-400" />
+                                <span className="text-[11px] font-mono text-amber-300 font-bold mr-1">
+                                  {task.progressPercent}%
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleResumeDownload(task.modelId, e)}
+                                  className="p-1 hover:bg-amber-500/20 rounded text-amber-300 transition-colors"
+                                  title={currentLang === 'vi' ? 'Tiếp tục tải' : 'Resume download'}
+                                >
+                                  <Play className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCancelDownload(task.modelId, e)}
+                                  className="p-1 hover:bg-rose-500/20 rounded text-rose-400 transition-colors"
+                                  title={currentLang === 'vi' ? 'Hủy tải' : 'Cancel download'}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
                             ) : isDownloading ? (
                               <button
                                 disabled
@@ -797,6 +1257,9 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
         ) : selectedHubModel ? (
           (() => {
             const dynamicComp = computeModelCompatibility(selectedHubModel);
+            const selectedTask = downloadTasks.find(
+              (t) => t.modelId === selectedHubModel.id || t.filename === selectedHubModel.filename
+            );
             const isDownloaded = localModels.some((f) => {
               const fl = f.toLowerCase();
               return (
@@ -935,6 +1398,64 @@ export const ModelHubTab: React.FC<ModelHubTabProps> = ({
                           <span>{currentLang === 'vi' ? 'Xóa khỏi máy' : 'Delete'}</span>
                         </button>
                       </>
+                    ) : selectedTask?.status === 'downloading' ? (
+                      <div className="flex items-center space-x-2 bg-sky-500/15 border border-sky-500/30 px-3 py-1.5 rounded-xl">
+                        <RefreshCw className="w-3.5 h-3.5 text-sky-400 animate-spin" />
+                        <span className="text-xs font-mono font-bold text-sky-300">
+                          {selectedTask.progressPercent}%
+                        </span>
+                        {selectedTask.speedMbps ? (
+                          <span className="text-[11px] font-mono text-gray-400">
+                            ({selectedTask.speedMbps} MB/s)
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={(e) => handlePauseDownload(selectedTask.modelId, e)}
+                          className="px-2 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 text-xs font-medium flex items-center space-x-1 transition-colors"
+                          title={currentLang === 'vi' ? 'Tạm dừng tải' : 'Pause'}
+                        >
+                          <Pause className="w-3 h-3" />
+                          <span>{currentLang === 'vi' ? 'Tạm dừng' : 'Pause'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleCancelDownload(selectedTask.modelId, e)}
+                          className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-medium flex items-center space-x-1 transition-colors"
+                          title={currentLang === 'vi' ? 'Hủy tải' : 'Cancel'}
+                        >
+                          <X className="w-3 h-3" />
+                          <span>{currentLang === 'vi' ? 'Hủy' : 'Cancel'}</span>
+                        </button>
+                      </div>
+                    ) : selectedTask?.status === 'paused' ? (
+                      <div className="flex items-center space-x-2 bg-amber-500/15 border border-amber-500/30 px-3 py-1.5 rounded-xl">
+                        <Pause className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="text-xs font-mono font-bold text-amber-300">
+                          {selectedTask.progressPercent}%
+                        </span>
+                        <span className="text-[11px] text-amber-300/80 font-mono">
+                          {currentLang === 'vi' ? '(Đã dừng)' : '(Paused)'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleResumeDownload(selectedTask.modelId, e)}
+                          className="px-2.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-medium flex items-center space-x-1 transition-colors"
+                          title={currentLang === 'vi' ? 'Tiếp tục tải' : 'Resume'}
+                        >
+                          <Play className="w-3 h-3" />
+                          <span>{currentLang === 'vi' ? 'Tiếp tục' : 'Resume'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleCancelDownload(selectedTask.modelId, e)}
+                          className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-medium flex items-center space-x-1 transition-colors"
+                          title={currentLang === 'vi' ? 'Hủy tải' : 'Cancel'}
+                        >
+                          <X className="w-3 h-3" />
+                          <span>{currentLang === 'vi' ? 'Hủy' : 'Cancel'}</span>
+                        </button>
+                      </div>
                     ) : (
                       <button
                         type="button"

@@ -524,11 +524,19 @@ export class DatabaseService {
       }
 
       const files = Array.from(foundFiles);
+      const nextSelected = files.includes(provider.selectedModel) ? provider.selectedModel : (files[0] || '');
+      const changed =
+        JSON.stringify(provider.models) !== JSON.stringify(files) ||
+        provider.selectedModel !== nextSelected;
+
       provider.models = files;
-      if (!files.includes(provider.selectedModel)) {
-        provider.selectedModel = files[0] || '';
+      provider.selectedModel = nextSelected;
+
+      if (changed) {
+        this.sqlite
+          .prepare('UPDATE providers SET models = ?, selected_model = ? WHERE id = ?')
+          .run(JSON.stringify(files), nextSelected, provider.id);
       }
-      this.saveProvider(provider);
     }
   }
 
@@ -588,8 +596,14 @@ export class DatabaseService {
   public saveProvider(provider: ProviderConfig): ProviderConfig {
     const tx = this.sqlite.transaction(() => {
       if (provider.isDefault) {
+        const existing = this.sqlite
+          .prepare('SELECT is_default FROM providers WHERE id = ?')
+          .get(provider.id) as { is_default: number } | undefined;
+        const wasAlreadyDefault = Boolean(existing?.is_default);
         this.sqlite.prepare('UPDATE providers SET is_default = 0').run();
-        this.setKV('activeProviderId', provider.id);
+        if (!wasAlreadyDefault || !this.getKV<string>('activeProviderId')) {
+          this.setKV('activeProviderId', provider.id);
+        }
       }
 
       this.sqlite.prepare(`

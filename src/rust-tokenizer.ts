@@ -25,6 +25,8 @@ export class RustTokenizerService {
   private static requestId = 0;
   private static binaryPath: string | null = null;
   private static initPromise: Promise<boolean> | null = null;
+  private static stdoutBuffer = '';
+  private static rpcQueue: Promise<any> = Promise.resolve();
 
   /**
    * Locate the compiled rust-tokenizer binary
@@ -77,8 +79,11 @@ export class RustTokenizerService {
         });
         proc.unref();
 
+        this.stdoutBuffer = '';
         proc.stdout?.on('data', (chunk: Buffer) => {
-          const lines = chunk.toString('utf-8').split('\n');
+          this.stdoutBuffer += chunk.toString('utf-8');
+          const lines = this.stdoutBuffer.split('\n');
+          this.stdoutBuffer = lines.pop() || '';
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed) continue;
@@ -98,11 +103,13 @@ export class RustTokenizerService {
         proc.on('error', (err) => {
           console.warn('[RustTokenizer] Daemon error:', err.message);
           this.process = null;
+          this.stdoutBuffer = '';
         });
 
         proc.on('exit', () => {
           this.process = null;
           this.currentLoadedPath = '';
+          this.stdoutBuffer = '';
         });
 
         this.process = proc;
@@ -128,8 +135,41 @@ export class RustTokenizerService {
       } catch {}
       this.process = null;
       this.currentLoadedPath = '';
+      this.stdoutBuffer = '';
       this.pendingRequests.clear();
     }
+  }
+
+  private static sendRpc(payload: Record<string, any>, timeoutMs: number): Promise<any> {
+    const run = () =>
+      new Promise<any>((resolve) => {
+        if (!this.process?.stdin) {
+          resolve(null);
+          return;
+        }
+        const id = ++this.requestId;
+        const timer = setTimeout(() => {
+          this.pendingRequests.delete(id);
+          resolve(null);
+        }, timeoutMs);
+
+        this.pendingRequests.set(id, (data) => {
+          clearTimeout(timer);
+          resolve(data);
+        });
+
+        try {
+          this.process.stdin.write(JSON.stringify(payload) + '\n');
+        } catch {
+          clearTimeout(timer);
+          this.pendingRequests.delete(id);
+          resolve(null);
+        }
+      });
+
+    const next = this.rpcQueue.then(run, run);
+    this.rpcQueue = next.catch(() => {});
+    return next;
   }
 
   /**
@@ -186,26 +226,13 @@ export class RustTokenizerService {
     const ready = await this.ensureProcess();
     if (!ready || !this.process?.stdin) return false;
 
-    return new Promise((resolve) => {
-      const id = ++this.requestId;
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        resolve(false);
-      }, 3000);
-
-      this.pendingRequests.set(id, (res) => {
-        clearTimeout(timer);
-        if (res && res.success) {
-          this.currentLoadedPath = tokenizerPath;
-          console.log(`[RustTokenizer] Loaded tokenizer: ${path.basename(tokenizerPath)} (Vocab: ${res.vocab_size})`);
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-      });
-
-      this.process!.stdin!.write(JSON.stringify({ action: 'load', path: tokenizerPath }) + '\n');
-    });
+    const res = await this.sendRpc({ action: 'load', path: tokenizerPath }, 3000);
+    if (res && res.success) {
+      this.currentLoadedPath = tokenizerPath;
+      console.log(`[RustTokenizer] Loaded tokenizer: ${path.basename(tokenizerPath)} (Vocab: ${res.vocab_size})`);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -235,20 +262,7 @@ export class RustTokenizerService {
       const isLoaded = await this.loadTokenizer(tokenizerPath);
       if (isLoaded && this.process?.stdin) {
         try {
-          const res = await new Promise<any>((resolve) => {
-            const id = ++this.requestId;
-            const timer = setTimeout(() => {
-              this.pendingRequests.delete(id);
-              resolve(null);
-            }, 3000);
-
-            this.pendingRequests.set(id, (data) => {
-              clearTimeout(timer);
-              resolve(data);
-            });
-
-            this.process!.stdin!.write(JSON.stringify({ action: 'encode', text }) + '\n');
-          });
+          const res = await this.sendRpc({ action: 'encode', text }, 3000);
 
           if (res && res.success && Array.isArray(res.tokens)) {
             return {
@@ -306,27 +320,15 @@ export class RustTokenizerService {
     const ready = await this.ensureProcess();
     if (ready && this.process?.stdin) {
       try {
-        const res = await new Promise<any>((resolve) => {
-          const id = ++this.requestId;
-          const timer = setTimeout(() => {
-            this.pendingRequests.delete(id);
-            resolve(null);
-          }, 4000);
-
-          this.pendingRequests.set(id, (data) => {
-            clearTimeout(timer);
-            resolve(data);
-          });
-
-          this.process!.stdin!.write(
-            JSON.stringify({
-              action: 'rag_search',
-              root_path: rootPath,
-              query,
-              limit,
-            }) + '\n'
-          );
-        });
+        const res = await this.sendRpc(
+          {
+            action: 'rag_search',
+            root_path: rootPath,
+            query,
+            limit,
+          },
+          4000
+        );
 
         if (res && res.success && Array.isArray(res.rag_results)) {
           return {

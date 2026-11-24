@@ -29,6 +29,7 @@ interface HeaderProps {
   onSelectModel: (modelName: string) => void;
   onToggleRightSidebar: () => void;
   onOpenSettings?: () => void;
+  onOpenNewWorkspace?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = React.memo(({
@@ -45,6 +46,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   onSelectModel,
   onToggleRightSidebar,
   onOpenSettings,
+  onOpenNewWorkspace,
 }) => {
   const currentLang = lang || getLanguage();
   const tr = propT || dictionaries[currentLang];
@@ -89,20 +91,22 @@ export const Header: React.FC<HeaderProps> = React.memo(({
         </span>
         <span className="text-gray-600 text-xs hidden sm:inline">/</span>
 
-        {/* Compact Workspace Indicator */}
-        <div
-          className="flex items-center space-x-1.5 text-gray-300 hover:text-white transition-colors text-xs max-w-[180px] truncate"
-          title={activeWorkspace?.folderPath || (currentLang === 'vi' ? 'Trò chuyện tự do (Không dùng dự án)' : 'General Chat (No Project)')}
+        {/* Interactive Workspace Indicator */}
+        <button
+          type="button"
+          onClick={onOpenNewWorkspace}
+          className="flex items-center space-x-1.5 px-2 py-0.5 rounded-lg hover:bg-white/[0.06] text-gray-300 hover:text-white transition-all text-xs max-w-[200px] truncate group/wsbtn cursor-pointer"
+          title={activeWorkspace ? `${activeWorkspace.name} (${activeWorkspace.folderPath})` : (currentLang === 'vi' ? 'Bấm để mở thư mục dự án' : 'Click to open project folder')}
         >
           {activeWorkspace ? (
             <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           ) : (
             <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
           )}
-          <span className="truncate text-[11px] font-medium">
+          <span className="truncate text-[11px] font-medium group-hover/wsbtn:text-sky-300">
             {activeWorkspace?.name || (currentLang === 'vi' ? 'Trò chuyện tự do' : 'General Chat')}
           </span>
-        </div>
+        </button>
 
         {/* Live Status Dot */}
         <span
@@ -141,7 +145,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
 
         {/* Dropdown Menu for Quick Model & Provider Switch */}
         {isModelDropdownOpen && (
-          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-72 p-1.5 rounded-xl bg-[#161b22] border border-[#30363d] shadow-2xl z-50 text-xs animate-fade-in backdrop-blur-xl">
+          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-72 p-1.5 rounded-xl bg-[#161b22] border border-[#30363d] shadow-2xl z-50 text-xs backdrop-blur-xl">
             {/* Providers List & Models (Only show enabled providers) */}
             <div className="max-h-60 overflow-y-auto space-y-1 py-0.5 custom-scrollbar">
               {providers.filter((p) => p.enabled !== false).map((p) => {

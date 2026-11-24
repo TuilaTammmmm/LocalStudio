@@ -16,6 +16,7 @@ dist-ssr/
 build/
 release/
 out/
+test/
 *.tsbuildinfo
 *.blockmap
 

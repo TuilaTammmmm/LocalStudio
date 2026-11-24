@@ -39,6 +39,7 @@ export default function App() {
   const [hardwareStats, setHardwareStats] = useState<HardwareStats | null>(null);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [pinnedFiles, setPinnedFiles] = useState<string[]>([]);
+  const sessionMessagesCache = useRef<Map<string, ChatMessage[]>>(new Map());
 
   // UI state
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState<boolean>(() => {
@@ -57,14 +58,6 @@ export default function App() {
       return next;
     });
   };
-
-  // Agent Workshop Swarm State
-  const [activeAgent, setActiveAgent] = useState<'coordinator' | 'coder' | 'critic' | 'harness' | null>(null);
-  const [agentThoughts, setAgentThoughts] = useState<Record<string, string>>({});
-  const [harnessLogs, setHarnessLogs] = useState<string>('');
-  const [isWorkshopExpanded, setIsWorkshopExpanded] = useState<boolean>(() => {
-    return localStorage.getItem('localai_workshop_expanded') === 'true';
-  });
 
   // 1. Initial Data Load
   useEffect(() => {
@@ -216,20 +209,43 @@ export default function App() {
     };
   }, [activeWorkspace?.id, lang]);
 
-  // Prevent default drag & drop navigation across entire window
+  // Prevent default drag & drop navigation across entire window, with smart directory drop detection
   useEffect(() => {
     const preventDrag = (e: DragEvent) => {
       e.preventDefault();
     };
+    const handleWindowDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      const files = e.dataTransfer?.files;
+      if (!files || files.length !== 1) return;
+
+      const firstFile = files[0] as any;
+      const potentialPath = firstFile?.path;
+      if (potentialPath && typeof potentialPath === 'string') {
+        try {
+          const opened = await api.openFolderWorkspace(potentialPath);
+          if (opened && opened.id) {
+            setWorkspaces((prev) => {
+              const exists = prev.some((w) => w.id === opened.id);
+              return exists ? prev : [opened, ...prev];
+            });
+            setActiveWorkspace(opened);
+          }
+        } catch {
+          // Not a directory or regular file, handled by local chat input
+        }
+      }
+    };
+
     window.addEventListener('dragover', preventDrag);
-    window.addEventListener('drop', preventDrag);
+    window.addEventListener('drop', handleWindowDrop);
     return () => {
       window.removeEventListener('dragover', preventDrag);
-      window.removeEventListener('drop', preventDrag);
+      window.removeEventListener('drop', handleWindowDrop);
     };
   }, []);
 
-  // 3. When active session changes: Load messages and remember active session
+  // 3. When active session changes: Load messages with instant local cache to prevent layout bounce
   useEffect(() => {
     if (!activeSession) {
       setMessages([]);
@@ -237,8 +253,38 @@ export default function App() {
     }
     const wsId = activeWorkspace?.id || 'no-project';
     localStorage.setItem(`localai_active_session_id_${wsId}`, activeSession.id);
-    api.getMessages(activeSession.id).then(setMessages).catch(() => setMessages([]));
+
+    // Instant switch from in-memory cache to prevent layout jump
+    if (sessionMessagesCache.current.has(activeSession.id)) {
+      setMessages(sessionMessagesCache.current.get(activeSession.id)!);
+    } else {
+      setMessages([]);
+    }
+
+    let isMounted = true;
+    api
+      .getMessages(activeSession.id)
+      .then((fresh) => {
+        if (isMounted) {
+          sessionMessagesCache.current.set(activeSession.id, fresh);
+          setMessages(fresh);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setMessages([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [activeSession?.id, activeWorkspace?.id]);
+
+  // Keep session message cache synced
+  useEffect(() => {
+    if (activeSession && messages.length > 0) {
+      sessionMessagesCache.current.set(activeSession.id, messages);
+    }
+  }, [messages, activeSession?.id]);
 
   // Handler: Send Message & SSE Streaming
   const handleSendMessage = async (promptText: string, hasImage = false) => {
@@ -256,30 +302,13 @@ export default function App() {
     const assistantTempId = `stream-${Date.now()}`;
     const activeModelName = activeProvider?.selectedModel;
 
-    const isSwarm = promptText.trim().startsWith('/swarm');
-    const cleanPrompt = isSwarm
-      ? promptText.replace(/^\/swarm\s*/i, '').trim() || promptText
-      : promptText;
-
-    if (isSwarm) {
-      setIsWorkshopExpanded(true);
-      localStorage.setItem('localai_workshop_expanded', 'true');
-      setActiveAgent('coordinator');
-      setAgentThoughts({});
-      setHarnessLogs('');
-    } else {
-      setActiveAgent(null);
-      setAgentThoughts({});
-      setHarnessLogs('');
-    }
-
     const assistantPlaceholder: ChatMessage = {
       id: assistantTempId,
       sessionId: activeSession.id,
       role: 'assistant',
       content: '',
       thinking: '',
-      modelUsed: isSwarm ? 'Biệt đội AI (Swarm)' : activeModelName,
+      modelUsed: activeModelName,
       createdAt: Date.now(),
     };
     setMessages((prev) => [...prev, assistantPlaceholder]);
@@ -288,15 +317,13 @@ export default function App() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    const streamEndpoint = isSwarm ? '/api/swarm/execute-stream' : '/api/chat/stream';
-
     try {
-      const response = await fetch(getApiUrl(streamEndpoint), {
+      const response = await fetch(getApiUrl('/api/chat/stream'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId: activeSession.id,
-          prompt: cleanPrompt,
+          prompt: promptText,
           contextFiles: pinnedFiles,
           workspaceId: activeWorkspace?.id,
           model: activeModelName,
@@ -368,28 +395,6 @@ export default function App() {
             try {
               const chunk = JSON.parse(jsonStr);
 
-              // Multi-agent Swarm & Harness streaming events
-              if (chunk.type === 'agent_step') {
-                if (chunk.agent) setActiveAgent(chunk.agent);
-                if (chunk.thought) {
-                  setAgentThoughts((prev) => ({
-                    ...prev,
-                    [chunk.agent]: (prev[chunk.agent] ? prev[chunk.agent] + '\n' : '') + chunk.thought,
-                  }));
-                }
-                if (chunk.chunk) {
-                  pendingContent += chunk.chunk;
-                }
-                if (chunk.status === 'done' && chunk.agent === 'harness') {
-                  setActiveAgent(null);
-                }
-              } else if (chunk.type === 'harness_result') {
-                setHarnessLogs(chunk.logs || (chunk.passed ? 'All tests passed (exit 0)' : `Tests failed (exit ${chunk.exitCode})`));
-                if (chunk.passed) {
-                  setActiveAgent(null);
-                }
-              }
-
               // Token Breakdown reporting
               if (chunk.tokenBreakdown) {
                 setMessages((prev) =>
@@ -450,7 +455,6 @@ export default function App() {
       }
     } finally {
       setIsStreaming(false);
-      setActiveAgent(null);
       abortControllerRef.current = null;
     }
   };
@@ -537,6 +541,7 @@ export default function App() {
     setPinnedFiles((prev) => {
       const next = prev.includes(relPath) ? prev.filter((f) => f !== relPath) : [...prev, relPath];
       if (activeWorkspace) {
+        setActiveWorkspace((aw) => (aw && aw.id === activeWorkspace.id ? { ...aw, pinnedFiles: next } : aw));
         api.updateWorkspace(activeWorkspace.id, { pinnedFiles: next }).catch(() => {});
       }
       return next;
@@ -600,6 +605,7 @@ export default function App() {
         }}
         onToggleRightSidebar={() => handleToggleRightSidebar()}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenNewWorkspace={() => setIsNewWorkspaceOpen(true)}
       />
 
       {/* 2. Main Workspace 3-Column Layout */}
@@ -667,78 +673,80 @@ export default function App() {
           t={t}
           onToggle={() => handleToggleRightSidebar(false)}
           onTogglePinFile={handleTogglePinFile}
+          onOpenNewWorkspace={() => setIsNewWorkspaceOpen(true)}
           onUpdateSystemPrompt={(prompt) => {
             if (activeWorkspace) {
-              const updated = { ...activeWorkspace, systemPrompt: prompt };
-              api.createWorkspace(updated).then(setActiveWorkspace);
+              api.updateWorkspace(activeWorkspace.id, { systemPrompt: prompt }).then(setActiveWorkspace);
             }
           }}
         />
       </div>
 
       {/* 3. Settings Studio Modal (Model Hub, Auto-Route, Skills, Providers, CUDA Hardware) */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={async () => {
-          setIsSettingsOpen(false);
-          try {
-            const provData = await api.getProviders();
-            setProviders(provData.providers);
-            if (provData.activeProvider) {
-              setActiveProvider(provData.activeProvider);
+      {isSettingsOpen && (
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={async () => {
+            setIsSettingsOpen(false);
+            try {
+              const provData = await api.getProviders();
+              setProviders(provData.providers);
+              if (provData.activeProvider) {
+                setActiveProvider(provData.activeProvider);
+              }
+            } catch {}
+          }}
+          skills={skills}
+          skillFolders={skillFolders}
+          providers={providers}
+          hardwareStats={hardwareStats}
+          lang={lang}
+          t={t}
+          onToggleLanguage={handleToggleLanguage}
+          onAddSkillFolder={async (folder) => {
+            const res = await api.addSkillFolder(folder);
+            setSkillFolders(res.folders);
+            const updatedSkills = await api.getSkills();
+            setSkills(updatedSkills.skills);
+          }}
+          onSaveProvider={async (p) => {
+            const saved = await api.saveProvider(p);
+            setProviders((prev) => {
+              const exists = prev.some((item) => item.id === saved.id);
+              if (exists) return prev.map((item) => (item.id === saved.id ? saved : item));
+              return [...prev, saved];
+            });
+            if (activeProvider?.id === saved.id || p.isDefault) setActiveProvider(saved);
+          }}
+          onDeleteProvider={async (id) => {
+            setProviders((prev) => prev.filter((item) => item.id !== id));
+            if (activeProvider?.id === id) {
+              setActiveProvider(null);
             }
-          } catch {}
-        }}
-        skills={skills}
-        skillFolders={skillFolders}
-        providers={providers}
-        hardwareStats={hardwareStats}
-        lang={lang}
-        t={t}
-        onToggleLanguage={handleToggleLanguage}
-        onAddSkillFolder={async (folder) => {
-          const res = await api.addSkillFolder(folder);
-          setSkillFolders(res.folders);
-          const updatedSkills = await api.getSkills();
-          setSkills(updatedSkills.skills);
-        }}
-        onSaveProvider={async (p) => {
-          const saved = await api.saveProvider(p);
-          setProviders((prev) => {
-            const exists = prev.some((item) => item.id === saved.id);
-            if (exists) return prev.map((item) => (item.id === saved.id ? saved : item));
-            return [...prev, saved];
-          });
-          if (activeProvider?.id === saved.id || p.isDefault) setActiveProvider(saved);
-        }}
-        onDeleteProvider={async (id) => {
-          setProviders((prev) => prev.filter((item) => item.id !== id));
-          if (activeProvider?.id === id) {
-            setActiveProvider(null);
-          }
-          try {
-            await api.deleteProvider(id);
-            const provData = await api.getProviders();
-            setProviders(provData.providers);
-            if (provData.activeProvider) {
-              setActiveProvider(provData.activeProvider);
+            try {
+              await api.deleteProvider(id);
+              const provData = await api.getProviders();
+              setProviders(provData.providers);
+              if (provData.activeProvider) {
+                setActiveProvider(provData.activeProvider);
+              }
+            } catch (err) {
+              console.error('Failed to delete provider', err);
             }
-          } catch (err) {
-            console.error('Failed to delete provider', err);
-          }
-        }}
-        onSyncProvider={async (id) => {
-          const res = await api.syncProvider(id);
-          try {
-            const provData = await api.getProviders();
-            setProviders(provData.providers);
-            if (provData.activeProvider) {
-              setActiveProvider(provData.activeProvider);
-            }
-          } catch {}
-          return res;
-        }}
-      />
+          }}
+          onSyncProvider={async (id) => {
+            const res = await api.syncProvider(id);
+            try {
+              const provData = await api.getProviders();
+              setProviders(provData.providers);
+              if (provData.activeProvider) {
+                setActiveProvider(provData.activeProvider);
+              }
+            } catch {}
+            return res;
+          }}
+        />
+      )}
 
       {/* 4. New Workspace Modal */}
       <NewWorkspaceModal

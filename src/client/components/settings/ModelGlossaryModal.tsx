@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, HelpCircle, Sparkles, ShieldOff, Brain, Code2, Eye, Cpu, Check } from 'lucide-react';
 
 interface ModelGlossaryModalProps {
@@ -12,6 +12,20 @@ export const ModelGlossaryModal: React.FC<ModelGlossaryModalProps> = ({
   onClose,
   currentLang,
 }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEsc, true);
+    return () => window.removeEventListener('keydown', handleEsc, true);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const terms = [
@@ -87,12 +101,12 @@ export const ModelGlossaryModal: React.FC<ModelGlossaryModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-2xl max-h-[85vh] bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-scale-up">
+      <div className="w-full max-w-2xl max-h-[85vh] bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="p-4 border-b border-[#30363d] flex items-center justify-between bg-[#161b22] shrink-0">
           <div className="flex items-center space-x-2.5">

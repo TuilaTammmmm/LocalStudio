@@ -113,6 +113,11 @@ export class LlamaProcessManager {
       '--context-shift', // Tự động trượt token cũ mượt mà theo tài liệu chính thức llama.cpp
     ];
 
+    if (config.ngl === 0) {
+      // Bypass CUDA backend compute initialization when running 100% CPU to prevent GPU driver stalls
+      args.push('--device', 'none');
+    }
+
     if (config.flashAttention ?? true) {
       args.push('-fa', 'on');
     }
@@ -159,6 +164,9 @@ export class LlamaProcessManager {
       const ready = await this.waitForReady(config.host, config.port, 90000);
       if (ready) {
         this.resetIdleTimer();
+      } else {
+        // Ensure failed/hung llama-server process is terminated instead of leaking a zombie process
+        await this.stopServer();
       }
       return ready;
     } catch (err: any) {

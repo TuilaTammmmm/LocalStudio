@@ -104,6 +104,15 @@ const RUNTIME_MANIFEST: Record<string, RuntimePackage> = {
   },
 };
 
+export interface DiscoveredEngine {
+  id: string;
+  name: string;
+  type: 'ollama' | 'lmstudio' | 'llama-server';
+  binaryPath: string;
+  baseUrl?: string;
+  available: boolean;
+}
+
 export class RuntimeManager {
   private hardwareMonitor: HardwareMonitor;
   private isDownloading = false;
@@ -317,6 +326,136 @@ export class RuntimeManager {
       return { success: false, error: err.message };
     } finally {
       this.isDownloading = false;
+    }
+  }
+
+  /**
+   * Scan system for locally installed engines (Ollama, LM Studio, local llama-server)
+   */
+  public discoverExternalEngines(): DiscoveredEngine[] {
+    const list: DiscoveredEngine[] = [];
+    const isWin = process.platform === 'win32';
+    const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || 'C:\\';
+
+    // 1. Ollama discovery
+    const ollamaCandidates = isWin
+      ? [
+          path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'Programs', 'Ollama', 'ollama.exe'),
+          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Ollama', 'ollama.exe'),
+        ]
+      : ['/usr/local/bin/ollama', '/usr/bin/ollama', path.join(home, '.ollama', 'bin', 'ollama')];
+
+    for (const p of ollamaCandidates) {
+      if (fs.existsSync(p)) {
+        list.push({
+          id: 'ext-ollama',
+          name: 'Ollama Engine',
+          type: 'ollama',
+          binaryPath: p,
+          baseUrl: 'http://127.0.0.1:11434',
+          available: true,
+        });
+        break;
+      }
+    }
+
+    // 2. LM Studio discovery
+    const lmStudioCandidates = isWin
+      ? [
+          path.join(home, '.cache', 'lm-studio', 'bin', 'llama-server.exe'),
+          path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'LM-Studio', 'app', 'bin', 'llama-server.exe'),
+        ]
+      : [
+          path.join(home, '.cache', 'lm-studio', 'bin', 'llama-server'),
+          path.join(home, 'Library', 'Application Support', 'LM Studio', 'bin', 'llama-server'),
+        ];
+
+    for (const p of lmStudioCandidates) {
+      if (fs.existsSync(p)) {
+        list.push({
+          id: 'ext-lmstudio',
+          name: 'LM Studio Runtime',
+          type: 'lmstudio',
+          binaryPath: p,
+          baseUrl: 'http://127.0.0.1:1234/v1',
+          available: true,
+        });
+        break;
+      }
+    }
+
+    // 3. Local bundled or existing llama-server in bin/
+    const bundledCandidate = path.resolve(process.cwd(), 'bin', isWin ? 'llama-server.exe' : 'llama-server');
+    if (fs.existsSync(bundledCandidate)) {
+      list.push({
+        id: 'local-bundled',
+        name: 'Local Bundled llama-server',
+        type: 'llama-server',
+        binaryPath: bundledCandidate,
+        available: true,
+      });
+    }
+
+    return list;
+  }
+
+  /**
+   * Import an offline engine archive (.zip) or directory/binary into LocalAI runtime directory
+   */
+  public async importOfflineEngine(sourcePath: string): Promise<{ success: boolean; binaryPath?: string; error?: string }> {
+    if (!fs.existsSync(sourcePath)) {
+      return { success: false, error: 'Đường dẫn nguồn không tồn tại trên máy.' };
+    }
+
+    const targetDir = this.getRuntimeDir();
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    const isWin = process.platform === 'win32';
+    const binaryName = isWin ? 'llama-server.exe' : 'llama-server';
+
+    try {
+      const stat = fs.statSync(sourcePath);
+      if (stat.isFile() && sourcePath.endsWith('.zip')) {
+        if (isWin) {
+          const extractCmd = `powershell -NoProfile -Command "Expand-Archive -Path '${sourcePath}' -DestinationPath '${targetDir}' -Force"`;
+          await execAsync(extractCmd);
+        } else {
+          await execAsync(`unzip -o "${sourcePath}" -d "${targetDir}"`);
+          const binFile = path.join(targetDir, binaryName);
+          if (fs.existsSync(binFile)) fs.chmodSync(binFile, 0o755);
+        }
+      } else if (stat.isDirectory()) {
+        const files = fs.readdirSync(sourcePath);
+        for (const f of files) {
+          const srcFile = path.join(sourcePath, f);
+          const destFile = path.join(targetDir, f);
+          if (fs.statSync(srcFile).isFile()) {
+            fs.copyFileSync(srcFile, destFile);
+          }
+        }
+        if (!isWin) {
+          const binFile = path.join(targetDir, binaryName);
+          if (fs.existsSync(binFile)) fs.chmodSync(binFile, 0o755);
+        }
+      } else if (stat.isFile()) {
+        const destFile = path.join(targetDir, path.basename(sourcePath));
+        fs.copyFileSync(sourcePath, destFile);
+        if (!isWin) fs.chmodSync(destFile, 0o755);
+      }
+
+      const installed = this.getInstalledBinary();
+      if (!installed) {
+        return {
+          success: false,
+          error: `Đã nhập tệp nhưng không tìm thấy tệp thực thi '${binaryName}' trong thư mục runtime.`,
+        };
+      }
+
+      return { success: true, binaryPath: installed };
+    } catch (err: any) {
+      return { success: false, error: err.message };
     }
   }
 }

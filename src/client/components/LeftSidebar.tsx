@@ -254,7 +254,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
                 className="fixed inset-0 z-40 cursor-default"
                 onClick={() => setShowWorkspaceMenu(false)}
               />
-              <div className="absolute top-full left-0 right-0 mt-2 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 overflow-hidden py-1 animate-slide-up backdrop-blur-xl">
+              <div className="absolute top-full left-0 right-0 mt-2 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 overflow-hidden py-1 backdrop-blur-xl">
                 <div className="px-3 py-1.5 text-[10px] font-semibold tracking-wider text-gray-400 uppercase flex items-center justify-between">
                   <span>{tr.workspaces}</span>
                   <span className="text-[10px] text-gray-500 font-mono">{workspaces.length}</span>

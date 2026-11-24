@@ -26,6 +26,7 @@ import {
   Eye,
   Copy,
   Search,
+  Square,
 } from 'lucide-react';
 
 interface RightSidebarProps {
@@ -38,6 +39,7 @@ interface RightSidebarProps {
   onToggle?: () => void;
   onTogglePinFile: (relativePath: string) => void;
   onUpdateSystemPrompt: (prompt: string) => void;
+  onOpenNewWorkspace?: () => void;
 }
 
 type ToolTabId = 'files' | 'terminal' | 'browser' | 'rag' | 'prompt' | 'new';
@@ -52,6 +54,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   onToggle,
   onTogglePinFile,
   onUpdateSystemPrompt,
+  onOpenNewWorkspace,
 }) => {
   const currentLang = lang || getLanguage();
   const tr = propT || dictionaries[currentLang];
@@ -77,6 +80,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   const [isRunning, setIsRunning] = useState(false);
   const [selectedShell, setSelectedShell] = useState<'powershell' | 'cmd' | 'bash'>('powershell');
   const [lastTerminalError, setLastTerminalError] = useState<{ command: string; error: string } | null>(null);
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const [draftCommand, setDraftCommand] = useState<string>('');
+  const terminalAbortController = React.useRef<AbortController | null>(null);
 
   // In-app file viewer state
   const [viewingFile, setViewingFile] = useState<{
@@ -241,7 +248,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
 
   if (!isOpen) return null;
 
-  const openToolTab = (id: 'files' | 'terminal' | 'browser' | 'rag' | 'prompt') => {
+  const openToolTab = (id: Exclude<ToolTabId, 'new'>) => {
     if (!openTabs.includes(id)) {
       setOpenTabs((prev) => [...prev.filter((t) => t !== 'new'), id]);
     }
@@ -265,8 +272,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
     if (!cmdToRun.trim() || isRunning) return;
     const cmd = cmdToRun.trim();
     setTerminalLogs((prev) => [...prev, { text: `> ${cmd}` }]);
+    setCommandHistory((prev) => (prev[prev.length - 1] === cmd ? prev : [...prev, cmd]));
+    setHistoryIndex(-1);
+    setDraftCommand('');
     setCommand('');
     setIsRunning(true);
+
+    const controller = new AbortController();
+    terminalAbortController.current = controller;
 
     try {
       const res = await fetch(getApiUrl('/api/terminal/run'), {
@@ -277,6 +290,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
           cwd: activeWorkspace?.folderPath,
           shell: selectedShell,
         }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (data.stdout) {
@@ -289,10 +303,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
         setLastTerminalError(null);
       }
     } catch (err: any) {
-      setTerminalLogs((prev) => [...prev, { text: `Error: ${err.message}`, isError: true }]);
-      setLastTerminalError({ command: cmd, error: err.message });
+      if (err.name === 'AbortError') {
+        setTerminalLogs((prev) => [...prev, { text: '^C (Đã dừng tiến trình)', isError: true }]);
+      } else {
+        setTerminalLogs((prev) => [...prev, { text: `Error: ${err.message}`, isError: true }]);
+        setLastTerminalError({ command: cmd, error: err.message });
+      }
     } finally {
       setIsRunning(false);
+      terminalAbortController.current = null;
+    }
+  };
+
+  const handleStopCommand = () => {
+    if (terminalAbortController.current) {
+      terminalAbortController.current.abort();
     }
   };
 
@@ -424,16 +449,26 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
               </span>
             </div>
             {!activeWorkspace ? (
-              <div className="p-4 text-center rounded-xl bg-white/[0.02] border border-white/5 space-y-2 mt-2">
+              <div className="p-4 text-center rounded-xl bg-white/[0.02] border border-white/5 space-y-2.5 mt-2">
                 <Folder className="w-7 h-7 text-sky-400 mx-auto opacity-70" />
                 <p className="text-xs font-semibold text-gray-200">
                   {currentLang === 'vi' ? 'Chế độ trò chuyện tự do' : 'General Chat Mode'}
                 </p>
                 <p className="text-[11px] text-gray-400 leading-relaxed">
                   {currentLang === 'vi'
-                    ? 'Bạn có thể đặt câu hỏi, dịch thuật, lập trình hoặc kéo thả file lẻ vào ô chat mà không cần liên kết thư mục.'
-                    : 'Chat freely without a project folder. Drag and drop single files directly into chat anytime.'}
+                    ? 'Bạn có thể đặt câu hỏi hoặc kéo thả thư mục dự án vào đây để bắt đầu làm việc.'
+                    : 'Chat freely or drag and drop a project folder here to start.'}
                 </p>
+                {onOpenNewWorkspace && (
+                  <button
+                    type="button"
+                    onClick={onOpenNewWorkspace}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-xs font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <Folder className="w-3.5 h-3.5" />
+                    <span>{currentLang === 'vi' ? 'Mở thư mục dự án' : 'Open Project Folder'}</span>
+                  </button>
+                )}
               </div>
             ) : fileTree.length === 0 ? (
               <div className="p-4 text-center text-xs text-gray-500 font-sans">
@@ -520,21 +555,62 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRunCommand();
-                    else if (e.key === 'Escape') setCommand('');
+                    if (e.key === 'Enter') {
+                      handleRunCommand();
+                    } else if (e.key === 'Escape') {
+                      setCommand('');
+                      setHistoryIndex(-1);
+                    } else if (e.key === 'c' && e.ctrlKey && isRunning) {
+                      e.preventDefault();
+                      handleStopCommand();
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      if (commandHistory.length === 0) return;
+                      const nextIdx = historyIndex === -1 ? commandHistory.length - 1 : Math.max(0, historyIndex - 1);
+                      if (historyIndex === -1) setDraftCommand(command);
+                      setHistoryIndex(nextIdx);
+                      setCommand(commandHistory[nextIdx]);
+                    } else if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      if (historyIndex === -1) return;
+                      const nextIdx = historyIndex + 1;
+                      if (nextIdx >= commandHistory.length) {
+                        setHistoryIndex(-1);
+                        setCommand(draftCommand);
+                      } else {
+                        setHistoryIndex(nextIdx);
+                        setCommand(commandHistory[nextIdx]);
+                      }
+                    }
                   }}
-                  placeholder={currentLang === 'vi' ? 'Nhập lệnh thực thi... (Enter để chạy, Esc để xóa)' : 'Enter command... (Enter to run, Esc to clear)'}
+                  placeholder={
+                    currentLang === 'vi'
+                      ? 'Nhập lệnh... (Enter để chạy, ↑/↓ xem lịch sử, Ctrl+C dừng)'
+                      : 'Enter command... (Enter to run, ↑/↓ history, Ctrl+C to abort)'
+                  }
                   className="flex-1 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10 text-xs text-gray-200 font-mono focus:outline-none focus:border-sky-500"
                 />
-                <button
-                  type="button"
-                  onClick={() => handleRunCommand()}
-                  disabled={isRunning || !command.trim()}
-                  className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs disabled:opacity-50 transition-colors flex items-center space-x-1"
-                >
-                  <Play className="w-3 h-3 fill-current" />
-                  <span>{isRunning ? tr.running : tr.run}</span>
-                </button>
+                {isRunning ? (
+                  <button
+                    type="button"
+                    onClick={handleStopCommand}
+                    className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs transition-colors flex items-center space-x-1 shadow-sm shrink-0"
+                    title={currentLang === 'vi' ? 'Dừng tiến trình đang chạy (Ctrl+C)' : 'Stop running process (Ctrl+C)'}
+                  >
+                    <Square className="w-3 h-3 fill-current" />
+                    <span>{currentLang === 'vi' ? 'Dừng' : 'Stop'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleRunCommand()}
+                    disabled={!command.trim()}
+                    className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs disabled:opacity-50 transition-colors flex items-center space-x-1 shrink-0"
+                  >
+                    <Play className="w-3 h-3 fill-current" />
+                    <span>{tr.run}</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center justify-between text-[10px] text-gray-400 px-1 pt-0.5">

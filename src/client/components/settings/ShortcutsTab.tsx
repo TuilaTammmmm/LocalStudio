@@ -56,15 +56,9 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({ currentLang }) => {
 
           <div className="space-y-2">
             <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-              Workspace & Multi-Agent
+              {currentLang === 'vi' ? 'Không gian làm việc & Điều hướng' : 'Workspace & Navigation'}
             </div>
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between p-2 rounded-lg bg-[#0d1117] border border-[#30363d]">
-                <span className="text-xs text-gray-300">Kích hoạt Swarm 4-Agent</span>
-                <kbd className="px-2 py-0.5 rounded bg-[#21262d] text-sky-400 font-mono text-[10px] border border-sky-500/30">
-                  /swarm &lt;prompt&gt;
-                </kbd>
-              </div>
               <div className="flex items-center justify-between p-2 rounded-lg bg-[#0d1117] border border-[#30363d]">
                 <span className="text-xs text-gray-300">Chèn tệp đính kèm (@file)</span>
                 <kbd className="px-2 py-0.5 rounded bg-[#21262d] text-white font-mono text-[10px] border border-[#30363d]">

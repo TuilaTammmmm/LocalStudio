@@ -27,12 +27,12 @@ export const ModelConfigModal: React.FC<ModelConfigModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget && !modelConfigLoading) onClose();
       }}
     >
-      <div className="w-full max-w-lg bg-[#161b22] border border-sky-500/40 rounded-2xl shadow-2xl p-6 space-y-5 animate-scale-up">
+      <div className="w-full max-w-lg bg-[#161b22] border border-sky-500/40 rounded-2xl shadow-2xl p-6 space-y-5">
         <div className="flex items-center justify-between border-b border-[#30363d] pb-3">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center">

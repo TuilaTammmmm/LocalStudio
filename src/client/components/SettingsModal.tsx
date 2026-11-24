@@ -32,6 +32,7 @@ import {
   Languages,
   RotateCcw,
   Save,
+  ChevronDown,
 } from 'lucide-react';
 
 import type {
@@ -220,7 +221,184 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, configModel, deleteConfirmModel, deleteConfirmProvider, onClose]);
 
-  if (!isOpen) return null;
+  // State snapshot for detecting dirty fields and one-click reverting
+  interface SettingsSnapshot {
+    gpuLayers: number;
+    contextSize: number;
+    cpuThreads: number;
+    flashAttention: boolean;
+    temperature: number;
+    topP: number;
+    maxTokens: number;
+    repeatPenalty: number;
+    autoApply: boolean;
+    defaultSystemPrompt: string;
+    theme: ThemeId;
+    accent: AccentId;
+    glassStyle: GlassStyleId;
+    fontSize: FontSizeId;
+  }
+
+  const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
+  const [allSavedToast, setAllSavedToast] = useState(false);
+  const [showPendingChangesModal, setShowPendingChangesModal] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const p = providers.find((item) => item.id === 'local-llama' || item.type === 'llama-server');
+      const themeSettings = getSavedThemeSettings();
+      setSnapshot({
+        gpuLayers: p?.gpuLayers ?? 21,
+        contextSize: p?.contextSize ?? 4096,
+        cpuThreads: p?.cpuThreads ?? 4,
+        flashAttention: p?.flashAttention ?? true,
+        temperature: Number(localStorage.getItem('localai_temperature') || '0.6'),
+        topP: Number(localStorage.getItem('localai_topP') || '0.9'),
+        maxTokens: Number(localStorage.getItem('localai_maxTokens') || '4096'),
+        repeatPenalty: Number(localStorage.getItem('localai_repeatPenalty') || '1.1'),
+        autoApply: localStorage.getItem('localai_auto_apply') === 'true',
+        defaultSystemPrompt:
+          localStorage.getItem('localai_defaultSystemPrompt') || defaultSystemPrompt,
+        theme: themeSettings.theme,
+        accent: themeSettings.accent,
+        glassStyle: themeSettings.glassStyle,
+        fontSize: themeSettings.fontSize,
+      });
+    } else {
+      setSnapshot(null);
+    }
+  }, [isOpen, providers, defaultSystemPrompt]);
+
+  interface PendingChange {
+    id: string;
+    label: string;
+    detail: string;
+    revert: () => void;
+  }
+
+  const pendingChanges = useMemo<PendingChange[]>(() => {
+    if (!snapshot) return [];
+    const list: PendingChange[] = [];
+
+    if (gpuLayers !== snapshot.gpuLayers) {
+      list.push({
+        id: 'gpuLayers',
+        label: 'Layer GPU',
+        detail: `${snapshot.gpuLayers} → ${gpuLayers}`,
+        revert: () => setGpuLayers(snapshot.gpuLayers),
+      });
+    }
+    if (contextSize !== snapshot.contextSize) {
+      list.push({
+        id: 'contextSize',
+        label: 'Ngữ cảnh',
+        detail: `${snapshot.contextSize} → ${contextSize}`,
+        revert: () => setContextSize(snapshot.contextSize),
+      });
+    }
+    if (cpuThreads !== snapshot.cpuThreads) {
+      list.push({
+        id: 'cpuThreads',
+        label: 'Luồng CPU',
+        detail: `${snapshot.cpuThreads} → ${cpuThreads}`,
+        revert: () => setCpuThreads(snapshot.cpuThreads),
+      });
+    }
+    if (flashAttention !== snapshot.flashAttention) {
+      list.push({
+        id: 'flashAttention',
+        label: 'Flash Attention',
+        detail: flashAttention ? 'Bật' : 'Tắt',
+        revert: () => setFlashAttention(snapshot.flashAttention),
+      });
+    }
+    if (temperature !== snapshot.temperature) {
+      list.push({
+        id: 'temperature',
+        label: 'Nhiệt độ',
+        detail: `${snapshot.temperature.toFixed(2)} → ${temperature.toFixed(2)}`,
+        revert: () => setTemperature(snapshot.temperature),
+      });
+    }
+    if (topP !== snapshot.topP) {
+      list.push({
+        id: 'topP',
+        label: 'Top-P',
+        detail: `${snapshot.topP.toFixed(2)} → ${topP.toFixed(2)}`,
+        revert: () => setTopP(snapshot.topP),
+      });
+    }
+    if (maxTokens !== snapshot.maxTokens) {
+      list.push({
+        id: 'maxTokens',
+        label: 'Độ dài tối đa',
+        detail: `${snapshot.maxTokens} → ${maxTokens}`,
+        revert: () => setMaxTokens(snapshot.maxTokens),
+      });
+    }
+    if (repeatPenalty !== snapshot.repeatPenalty) {
+      list.push({
+        id: 'repeatPenalty',
+        label: 'Phạt lặp từ',
+        detail: `${snapshot.repeatPenalty.toFixed(2)} → ${repeatPenalty.toFixed(2)}`,
+        revert: () => setRepeatPenalty(snapshot.repeatPenalty),
+      });
+    }
+    if (autoApply !== snapshot.autoApply) {
+      list.push({
+        id: 'autoApply',
+        label: 'Tự động áp dụng',
+        detail: autoApply ? 'Bật' : 'Tắt',
+        revert: () => setAutoApply(snapshot.autoApply),
+      });
+    }
+    if (defaultSystemPrompt !== snapshot.defaultSystemPrompt) {
+      list.push({
+        id: 'defaultSystemPrompt',
+        label: 'Chỉ dẫn hệ thống',
+        detail: 'Đã chỉnh sửa',
+        revert: () => setDefaultSystemPrompt(snapshot.defaultSystemPrompt),
+      });
+    }
+    if (
+      currentTheme !== snapshot.theme ||
+      currentAccent !== snapshot.accent ||
+      glassStyle !== snapshot.glassStyle ||
+      uiFontSize !== snapshot.fontSize
+    ) {
+      list.push({
+        id: 'appearance',
+        label: 'Giao diện & Chủ đề',
+        detail: 'Tùy biến hiển thị',
+        revert: () => {
+          handleUpdateTheme({
+            theme: snapshot.theme,
+            accent: snapshot.accent,
+            glassStyle: snapshot.glassStyle,
+            fontSize: snapshot.fontSize,
+          });
+        },
+      });
+    }
+
+    return list;
+  }, [
+    snapshot,
+    gpuLayers,
+    contextSize,
+    cpuThreads,
+    flashAttention,
+    temperature,
+    topP,
+    maxTokens,
+    repeatPenalty,
+    autoApply,
+    defaultSystemPrompt,
+    currentTheme,
+    currentAccent,
+    glassStyle,
+    uiFontSize,
+  ]);
 
   // Actions
   const handleStartDownload = async (model: EnrichedModelItem) => {
@@ -426,183 +604,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTimeout(() => setParamSaved(false), 2200);
   };
 
-  // State snapshot for detecting dirty fields and one-click reverting
-  interface SettingsSnapshot {
-    gpuLayers: number;
-    contextSize: number;
-    cpuThreads: number;
-    flashAttention: boolean;
-    temperature: number;
-    topP: number;
-    maxTokens: number;
-    repeatPenalty: number;
-    autoApply: boolean;
-    defaultSystemPrompt: string;
-    theme: ThemeId;
-    accent: AccentId;
-    glassStyle: GlassStyleId;
-    fontSize: FontSizeId;
-  }
 
-  const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
-  const [allSavedToast, setAllSavedToast] = useState(false);
-
-  useEffect(() => {
-    if (isOpen) {
-      const p = providers.find((item) => item.id === 'local-llama' || item.type === 'llama-server');
-      const themeSettings = getSavedThemeSettings();
-      setSnapshot({
-        gpuLayers: p?.gpuLayers ?? 21,
-        contextSize: p?.contextSize ?? 4096,
-        cpuThreads: p?.cpuThreads ?? 4,
-        flashAttention: p?.flashAttention ?? true,
-        temperature: Number(localStorage.getItem('localai_temperature') || '0.6'),
-        topP: Number(localStorage.getItem('localai_topP') || '0.9'),
-        maxTokens: Number(localStorage.getItem('localai_maxTokens') || '4096'),
-        repeatPenalty: Number(localStorage.getItem('localai_repeatPenalty') || '1.1'),
-        autoApply: localStorage.getItem('localai_auto_apply') === 'true',
-        defaultSystemPrompt:
-          localStorage.getItem('localai_defaultSystemPrompt') || defaultSystemPrompt,
-        theme: themeSettings.theme,
-        accent: themeSettings.accent,
-        glassStyle: themeSettings.glassStyle,
-        fontSize: themeSettings.fontSize,
-      });
-    } else {
-      setSnapshot(null);
-    }
-  }, [isOpen]);
-
-  interface PendingChange {
-    id: string;
-    label: string;
-    detail: string;
-    revert: () => void;
-  }
-
-  const pendingChanges = useMemo<PendingChange[]>(() => {
-    if (!snapshot) return [];
-    const list: PendingChange[] = [];
-
-    if (gpuLayers !== snapshot.gpuLayers) {
-      list.push({
-        id: 'gpuLayers',
-        label: 'Layer GPU',
-        detail: `${snapshot.gpuLayers} → ${gpuLayers}`,
-        revert: () => setGpuLayers(snapshot.gpuLayers),
-      });
-    }
-    if (contextSize !== snapshot.contextSize) {
-      list.push({
-        id: 'contextSize',
-        label: 'Ngữ cảnh',
-        detail: `${snapshot.contextSize} → ${contextSize}`,
-        revert: () => setContextSize(snapshot.contextSize),
-      });
-    }
-    if (cpuThreads !== snapshot.cpuThreads) {
-      list.push({
-        id: 'cpuThreads',
-        label: 'Luồng CPU',
-        detail: `${snapshot.cpuThreads} → ${cpuThreads}`,
-        revert: () => setCpuThreads(snapshot.cpuThreads),
-      });
-    }
-    if (flashAttention !== snapshot.flashAttention) {
-      list.push({
-        id: 'flashAttention',
-        label: 'Flash Attention',
-        detail: flashAttention ? 'Bật' : 'Tắt',
-        revert: () => setFlashAttention(snapshot.flashAttention),
-      });
-    }
-    if (temperature !== snapshot.temperature) {
-      list.push({
-        id: 'temperature',
-        label: 'Nhiệt độ',
-        detail: `${snapshot.temperature.toFixed(2)} → ${temperature.toFixed(2)}`,
-        revert: () => setTemperature(snapshot.temperature),
-      });
-    }
-    if (topP !== snapshot.topP) {
-      list.push({
-        id: 'topP',
-        label: 'Top-P',
-        detail: `${snapshot.topP.toFixed(2)} → ${topP.toFixed(2)}`,
-        revert: () => setTopP(snapshot.topP),
-      });
-    }
-    if (maxTokens !== snapshot.maxTokens) {
-      list.push({
-        id: 'maxTokens',
-        label: 'Độ dài tối đa',
-        detail: `${snapshot.maxTokens} → ${maxTokens}`,
-        revert: () => setMaxTokens(snapshot.maxTokens),
-      });
-    }
-    if (repeatPenalty !== snapshot.repeatPenalty) {
-      list.push({
-        id: 'repeatPenalty',
-        label: 'Phạt lặp từ',
-        detail: `${snapshot.repeatPenalty.toFixed(2)} → ${repeatPenalty.toFixed(2)}`,
-        revert: () => setRepeatPenalty(snapshot.repeatPenalty),
-      });
-    }
-    if (autoApply !== snapshot.autoApply) {
-      list.push({
-        id: 'autoApply',
-        label: 'Tự động áp dụng',
-        detail: autoApply ? 'Bật' : 'Tắt',
-        revert: () => setAutoApply(snapshot.autoApply),
-      });
-    }
-    if (defaultSystemPrompt !== snapshot.defaultSystemPrompt) {
-      list.push({
-        id: 'defaultSystemPrompt',
-        label: 'Chỉ dẫn hệ thống',
-        detail: 'Đã chỉnh sửa',
-        revert: () => setDefaultSystemPrompt(snapshot.defaultSystemPrompt),
-      });
-    }
-    if (
-      currentTheme !== snapshot.theme ||
-      currentAccent !== snapshot.accent ||
-      glassStyle !== snapshot.glassStyle ||
-      uiFontSize !== snapshot.fontSize
-    ) {
-      list.push({
-        id: 'appearance',
-        label: 'Giao diện & Chủ đề',
-        detail: 'Tùy biến hiển thị',
-        revert: () => {
-          handleUpdateTheme({
-            theme: snapshot.theme,
-            accent: snapshot.accent,
-            glassStyle: snapshot.glassStyle,
-            fontSize: snapshot.fontSize,
-          });
-        },
-      });
-    }
-
-    return list;
-  }, [
-    snapshot,
-    gpuLayers,
-    contextSize,
-    cpuThreads,
-    flashAttention,
-    temperature,
-    topP,
-    maxTokens,
-    repeatPenalty,
-    autoApply,
-    defaultSystemPrompt,
-    currentTheme,
-    currentAccent,
-    glassStyle,
-    uiFontSize,
-  ]);
 
   const handleSaveAllChanges = () => {
     handleSaveHardwareConfig();
@@ -714,8 +716,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     },
   ];
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 bg-[#0d1117] flex overflow-hidden animate-fade-in">
+    <div className="fixed inset-0 z-50 bg-[#0d1117] flex overflow-hidden">
       <div className="w-full h-full bg-[#0d1117] flex overflow-hidden">
         {/* Left Navigation Sidebar */}
         <div className="w-64 sm:w-72 bg-[#161b22] border-r border-[#30363d] flex flex-col justify-between shrink-0">
@@ -769,38 +773,95 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {navItems.find((n) => n.id === activeCategory)?.label}
             </span>
 
-            {/* Changes Indicator & Revert Breadcrumbs */}
-            <div className="flex items-center space-x-2 min-w-0 flex-1 justify-end overflow-hidden">
+            {/* Changes Indicator & Revert Dropdown / Table */}
+            <div className="relative flex items-center space-x-2 shrink-0">
               {pendingChanges.length > 0 && (
-                <div className="flex items-center space-x-1.5 overflow-x-auto py-1 max-w-[620px] custom-scrollbar">
-                  <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider shrink-0 flex items-center space-x-1">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    <span>Đã sửa ({pendingChanges.length}):</span>
-                  </span>
-
-                  {pendingChanges.map((change) => (
-                    <button
-                      key={change.id}
-                      type="button"
-                      onClick={change.revert}
-                      className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-[#21262d] hover:bg-rose-500/20 text-gray-300 hover:text-rose-300 border border-[#30363d] text-[10px] font-mono shrink-0 transition-colors"
-                      title="Nhấp để hoàn tác thay đổi này"
-                    >
-                      <span className="font-semibold">{change.label}:</span>
-                      <span className="text-gray-400">{change.detail}</span>
-                      <RotateCcw className="w-2.5 h-2.5 text-gray-400 ml-0.5" />
-                    </button>
-                  ))}
-
+                <div className="relative">
                   <button
                     type="button"
-                    onClick={() => {
-                      pendingChanges.forEach((c) => c.revert());
-                    }}
-                    className="px-2 py-0.5 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-semibold shrink-0 transition-colors"
+                    onClick={() => setShowPendingChangesModal(!showPendingChangesModal)}
+                    className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold transition-all shadow-sm"
+                    title={currentLang === 'vi' ? 'Xem bảng các thay đổi chưa lưu' : 'View unsaved changes'}
                   >
-                    Hoàn tác tất cả
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <span>
+                      {currentLang === 'vi' ? 'Đã sửa' : 'Modified'} ({pendingChanges.length})
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-amber-400 transition-transform ${
+                        showPendingChangesModal ? 'rotate-180' : ''
+                      }`}
+                    />
                   </button>
+
+                  {/* Fixed Size Scrollable Table Popover */}
+                  {showPendingChangesModal && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowPendingChangesModal(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-[#161b22] border border-[#30363d] rounded-2xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl">
+                        {/* Table Header */}
+                        <div className="px-3.5 py-2.5 bg-[#0d1117] border-b border-[#30363d] flex items-center justify-between">
+                          <div className="flex items-center space-x-1.5">
+                            <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+                            <span className="text-xs font-bold text-white">
+                              {currentLang === 'vi' ? 'Tùy chọn đã thay đổi' : 'Unsaved Changes'}
+                            </span>
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              ({pendingChanges.length})
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              pendingChanges.forEach((c) => c.revert());
+                              setShowPendingChangesModal(false);
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold transition-colors flex items-center space-x-1"
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            <span>{currentLang === 'vi' ? 'Hoàn tác tất cả' : 'Revert All'}</span>
+                          </button>
+                        </div>
+
+                        {/* Table Body - Fixed max height with smooth scrolling */}
+                        <div className="max-h-64 overflow-y-auto divide-y divide-[#30363d]/50 custom-scrollbar p-1">
+                          {pendingChanges.map((change) => (
+                            <div
+                              key={change.id}
+                              className="px-3 py-2 flex items-center justify-between text-xs hover:bg-[#21262d]/60 rounded-lg transition-colors group"
+                            >
+                              <div className="min-w-0 pr-2">
+                                <div className="font-semibold text-gray-200 text-xs">
+                                  {change.label}
+                                </div>
+                                <div className="text-[11px] text-amber-300 font-mono truncate">
+                                  {change.detail}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={change.revert}
+                                className="px-2 py-1 rounded-md bg-[#21262d] group-hover:bg-rose-500/20 text-gray-400 group-hover:text-rose-300 border border-[#30363d] text-[10px] font-semibold shrink-0 transition-colors flex items-center space-x-1"
+                                title={currentLang === 'vi' ? 'Hoàn tác mục này' : 'Revert this change'}
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>{currentLang === 'vi' ? 'Hoàn tác' : 'Revert'}</span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Table Footer */}
+                        <div className="px-3 py-2 bg-[#0d1117] border-t border-[#30363d] text-[10px] text-gray-400 flex items-center justify-between font-mono">
+                          <span>{currentLang === 'vi' ? 'Cuộn xem toàn bộ danh sách' : 'Scroll inside to view all'}</span>
+                          <span className="text-gray-500">LocalAI Studio</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -910,13 +971,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   {/* Themes */}
                   <div className="space-y-2">
-                    <span className="font-semibold text-xs text-gray-200">Studio Theme:</span>
+                    <span className="font-semibold text-xs text-gray-200">
+                      {currentLang === 'vi' ? 'Chủ đề giao diện:' : 'Studio Theme:'}
+                    </span>
                     <div className="grid grid-cols-4 gap-2.5">
                       {[
-                        { id: 'charcoal' as ThemeId, label: 'Charcoal Dark', desc: 'Default studio look', bg: '#0d1117' },
-                        { id: 'midnight' as ThemeId, label: 'Midnight Blue', desc: 'Deep navy undertone', bg: '#080c14' },
-                        { id: 'obsidian' as ThemeId, label: 'Obsidian OLED', desc: 'True pure black', bg: '#000000' },
-                        { id: 'slate' as ThemeId, label: 'Slate Gray', desc: 'Modern cool gray', bg: '#0f172a' },
+                        {
+                          id: 'charcoal' as ThemeId,
+                          label: currentLang === 'vi' ? 'Tối Than Chì' : 'Charcoal Dark',
+                          desc: currentLang === 'vi' ? 'Mặc định Studio' : 'Default studio look',
+                          bg: '#0d1117',
+                        },
+                        {
+                          id: 'midnight' as ThemeId,
+                          label: currentLang === 'vi' ? 'Xanh Đêm Thẳm' : 'Midnight Blue',
+                          desc: currentLang === 'vi' ? 'Sắc lam chìm êm dịu' : 'Deep navy undertone',
+                          bg: '#080c14',
+                        },
+                        {
+                          id: 'obsidian' as ThemeId,
+                          label: currentLang === 'vi' ? 'Đen Thuần OLED' : 'Obsidian OLED',
+                          desc: currentLang === 'vi' ? 'Đen sâu tiết kiệm pin' : 'True pure black',
+                          bg: '#000000',
+                        },
+                        {
+                          id: 'slate' as ThemeId,
+                          label: currentLang === 'vi' ? 'Xám Đá Phiến' : 'Slate Gray',
+                          desc: currentLang === 'vi' ? 'Hiện đại thanh lịch' : 'Modern cool gray',
+                          bg: '#0f172a',
+                        },
                       ].map((item) => (
                         <button
                           key={item.id}
@@ -940,13 +1023,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   {/* Accent Colors */}
                   <div className="space-y-2 pt-2 border-t border-[#30363d]">
-                    <span className="font-semibold text-xs text-gray-200">Accent Color:</span>
+                    <span className="font-semibold text-xs text-gray-200">
+                      {currentLang === 'vi' ? 'Màu sắc điểm nhấn:' : 'Accent Color:'}
+                    </span>
                     <div className="grid grid-cols-4 gap-2.5">
                       {[
-                        { id: 'sky' as AccentId, label: 'Sky Blue', color: 'bg-sky-400' },
-                        { id: 'emerald' as AccentId, label: 'Emerald Green', color: 'bg-emerald-400' },
-                        { id: 'indigo' as AccentId, label: 'Indigo Violet', color: 'bg-indigo-400' },
-                        { id: 'rose' as AccentId, label: 'Rose Red', color: 'bg-rose-400' },
+                        { id: 'sky' as AccentId, label: currentLang === 'vi' ? 'Xanh Dương' : 'Sky Blue', color: 'bg-sky-400' },
+                        { id: 'emerald' as AccentId, label: currentLang === 'vi' ? 'Xanh Lục Bảo' : 'Emerald Green', color: 'bg-emerald-400' },
+                        { id: 'indigo' as AccentId, label: currentLang === 'vi' ? 'Tím Chàm' : 'Indigo Violet', color: 'bg-indigo-400' },
+                        { id: 'rose' as AccentId, label: currentLang === 'vi' ? 'Đỏ Hoa Hồng' : 'Rose Red', color: 'bg-rose-400' },
                       ].map((acc) => (
                         <button
                           key={acc.id}
@@ -967,12 +1052,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   {/* UI Font Scaling */}
                   <div className="space-y-2 pt-2 border-t border-[#30363d]">
-                    <span className="font-semibold text-xs text-gray-200">{tr.fontSize || 'Font Scaling'}:</span>
+                    <span className="font-semibold text-xs text-gray-200">
+                      {tr.fontSize?.replace(/:+$/, '') || (currentLang === 'vi' ? 'Tỷ lệ cỡ chữ giao diện' : 'Font Scaling')}:
+                    </span>
                     <div className="grid grid-cols-3 gap-2.5">
                       {[
-                        { id: 'compact' as FontSizeId, label: 'Compact', desc: '13px High-density UI' },
-                        { id: 'default' as FontSizeId, label: 'Default', desc: '14px Balanced standard' },
-                        { id: 'large' as FontSizeId, label: 'Large', desc: '15px High-readability' },
+                        {
+                          id: 'compact' as FontSizeId,
+                          label: currentLang === 'vi' ? 'Tinh gọn (13px)' : 'Compact (13px)',
+                          desc: currentLang === 'vi' ? 'Mật độ cao, hiển thị nhiều nội dung' : '13px High-density UI',
+                        },
+                        {
+                          id: 'default' as FontSizeId,
+                          label: currentLang === 'vi' ? 'Tiêu chuẩn (14px)' : 'Default (14px)',
+                          desc: currentLang === 'vi' ? 'Cân bằng chuẩn giao diện Studio' : '14px Balanced standard',
+                        },
+                        {
+                          id: 'large' as FontSizeId,
+                          label: currentLang === 'vi' ? 'Cỡ lớn (15px)' : 'Large (15px)',
+                          desc: currentLang === 'vi' ? 'Dễ đọc, rõ ràng khoảng cách' : '15px High-readability',
+                        },
                       ].map((item) => (
                         <button
                           key={item.id}
@@ -993,12 +1092,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   {/* Glassmorphism Presets */}
                   <div className="space-y-2 pt-2 border-t border-[#30363d]">
-                    <span className="font-semibold text-xs text-gray-200">{tr.glassIntensity || 'Glass Intensity'}:</span>
+                    <span className="font-semibold text-xs text-gray-200">
+                      {tr.glassIntensity?.replace(/:+$/, '') || (currentLang === 'vi' ? 'Mức độ hiệu ứng kính mờ' : 'Glass Intensity')}:
+                    </span>
                     <div className="grid grid-cols-3 gap-2.5">
                       {[
-                        { id: 'ultra' as GlassStyleId, label: 'Ultra Glass', desc: 'Max blur & transparency' },
-                        { id: 'frosted' as GlassStyleId, label: 'Balanced Frosted', desc: 'Optimized contrast' },
-                        { id: 'solid' as GlassStyleId, label: 'Solid Dark', desc: 'Clean zero-blur' },
+                        {
+                          id: 'ultra' as GlassStyleId,
+                          label: currentLang === 'vi' ? 'Kính mờ cao' : 'Ultra Glass',
+                          desc: currentLang === 'vi' ? 'Độ mờ & trong suốt tối đa' : 'Max blur & transparency',
+                        },
+                        {
+                          id: 'frosted' as GlassStyleId,
+                          label: currentLang === 'vi' ? 'Sương mờ cân đối' : 'Balanced Frosted',
+                          desc: currentLang === 'vi' ? 'Độ tương phản tối ưu' : 'Optimized contrast',
+                        },
+                        {
+                          id: 'solid' as GlassStyleId,
+                          label: currentLang === 'vi' ? 'Tối phẳng' : 'Solid Dark',
+                          desc: currentLang === 'vi' ? 'Đơn sắc thuần túy, không mờ' : 'Clean zero-blur',
+                        },
                       ].map((item) => (
                         <button
                           key={item.id}
@@ -1304,12 +1417,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       {/* Confirmation Modal: Delete Model from Disk */}
       {deleteConfirmModel && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setDeleteConfirmModel(null);
           }}
         >
-          <div className="w-full max-w-md bg-[#161b22] border border-rose-500/40 rounded-2xl shadow-2xl p-6 space-y-4 animate-scale-up">
+          <div className="w-full max-w-md bg-[#161b22] border border-rose-500/40 rounded-2xl shadow-2xl p-6 space-y-4">
             <div className="flex items-center space-x-3 text-rose-400">
               <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5 text-rose-400" />
@@ -1364,12 +1477,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       {/* Confirmation Modal: Delete Provider */}
       {deleteConfirmProvider && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setDeleteConfirmProvider(null);
           }}
         >
-          <div className="w-full max-w-md bg-[#161b22] border border-rose-500/40 rounded-2xl shadow-2xl p-6 space-y-4 animate-scale-up">
+          <div className="w-full max-w-md bg-[#161b22] border border-rose-500/40 rounded-2xl shadow-2xl p-6 space-y-4">
             <div className="flex items-center space-x-3 text-rose-400">
               <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5 text-rose-400" />

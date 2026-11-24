@@ -42,6 +42,23 @@ interface ChatInputProps {
   t?: Translations;
 }
 
+interface CodeSnippetAttachment {
+  id: string;
+  code: string;
+  language: string;
+  lineCount: number;
+}
+
+function detectCodeLanguage(code: string): string {
+  if (/^\s*(import\s+.*from|export\s+|const\s+|let\s+|function\s*\(|class\s+)/m.test(code)) return 'typescript';
+  if (/^\s*(def\s+|import\s+\w+|from\s+\w+\s+import|class\s+\w+:)/m.test(code)) return 'python';
+  if (/^\s*(SELECT\s+|INSERT\s+INTO|CREATE\s+TABLE|UPDATE\s+.*SET)/mi.test(code)) return 'sql';
+  if (/^\s*<(!DOCTYPE|html|div|svg|script)/mi.test(code)) return 'html';
+  if (/^\s*\{[\s\S]*\}\s*$/m.test(code) && code.includes(':')) return 'json';
+  if (/^\s*(#include|int\s+main|std::)/m.test(code)) return 'cpp';
+  return 'code';
+}
+
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isStreaming,
@@ -65,6 +82,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const [text, setText] = useState('');
   const [attachedImage, setAttachedImage] = useState<{ name: string; dataUrl: string } | null>(null);
+  const [snippets, setSnippets] = useState<CodeSnippetAttachment[]>([]);
+  const [viewingSnippetId, setViewingSnippetId] = useState<string | null>(null);
   const [autocompleteMode, setAutocompleteMode] = useState<'skill' | 'file' | null>(null);
   const [autocompleteQuery, setAutocompleteQuery] = useState('');
   const [selectedAutocompleteIndex, setSelectedAutocompleteIndex] = useState(0);
@@ -214,24 +233,49 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          e.preventDefault();
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const dataUrl = event.target?.result as string;
-            setAttachedImage({
-              name: file.name || `Pasted_Image_${Date.now().toString().slice(-4)}.png`,
-              dataUrl,
-            });
-          };
-          reader.readAsDataURL(file);
-          return;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const dataUrl = event.target?.result as string;
+              setAttachedImage({
+                name: file.name || `Pasted_Image_${Date.now().toString().slice(-4)}.png`,
+                dataUrl,
+              });
+            };
+            reader.readAsDataURL(file);
+            return;
+          }
         }
+      }
+    }
+
+    // Smart Code Snippet Detection for long text / source code
+    const pastedText = e.clipboardData.getData('text');
+    if (pastedText) {
+      const lines = pastedText.split('\n');
+      const isCodeLike =
+        lines.length >= 10 ||
+        (lines.length >= 5 &&
+          /^(import\s+|export\s+|def\s+|const\s+|let\s+|function\s+|class\s+|SELECT\s+|<!DOCTYPE|<html)/im.test(
+            pastedText
+          ));
+
+      if (isCodeLike) {
+        e.preventDefault();
+        const detectedLang = detectCodeLanguage(pastedText);
+        const newSnippet: CodeSnippetAttachment = {
+          id: `snip-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          code: pastedText,
+          language: detectedLang,
+          lineCount: lines.length,
+        };
+        setSnippets((prev) => [...prev, newSnippet]);
       }
     }
   };
@@ -333,13 +377,24 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleSend = () => {
-    if ((!text.trim() && !attachedImage) || isStreaming) return;
-    const finalPrompt = attachedImage
-      ? `[Ảnh đính kèm: ${attachedImage.name}]\n${text.trim() || 'Hãy phân tích hình ảnh này.'}`
-      : text;
+    if ((!text.trim() && !attachedImage && snippets.length === 0) || isStreaming) return;
+
+    let finalPrompt = text.trim();
+    if (snippets.length > 0) {
+      const snippetsBlock = snippets
+        .map((s) => `\`\`\`${s.language}\n${s.code}\n\`\`\``)
+        .join('\n\n');
+      finalPrompt = finalPrompt ? `${finalPrompt}\n\n${snippetsBlock}` : snippetsBlock;
+    }
+    if (attachedImage) {
+      finalPrompt = `[Ảnh đính kèm: ${attachedImage.name}]\n${finalPrompt || 'Hãy phân tích hình ảnh này.'}`;
+    }
+
     onSendMessage(finalPrompt, !!attachedImage);
     setText('');
     setAttachedImage(null);
+    setSnippets([]);
+    setViewingSnippetId(null);
     setAutocompleteMode(null);
   };
 
@@ -419,7 +474,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
       {/* 1. Skill Suggestions Popup */}
       {autocompleteMode === 'skill' && (
-        <div className="absolute bottom-full left-0 mb-3 w-84 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-slide-up backdrop-blur-xl">
+        <div className="absolute bottom-full left-0 mb-3 w-84 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 backdrop-blur-xl">
           <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex items-center justify-between border-b border-[#30363d] pb-1.5">
             <div className="flex items-center space-x-1.5">
               <Sparkles className="w-3.5 h-3.5 text-sky-400" />
@@ -455,7 +510,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
       {/* 2. File Suggestions Popup (@) */}
       {autocompleteMode === 'file' && (
-        <div className="absolute bottom-full left-0 mb-3 w-84 max-h-56 overflow-y-auto bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-slide-up backdrop-blur-xl">
+        <div className="absolute bottom-full left-0 mb-3 w-84 max-h-56 overflow-y-auto bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1 backdrop-blur-xl">
           <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 flex items-center justify-between border-b border-[#30363d] pb-1.5">
             <div className="flex items-center space-x-1.5">
               <FileText className="w-3.5 h-3.5 text-amber-400" />
@@ -508,21 +563,50 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
         {isDragOver && (
           <div className="absolute inset-0 bg-sky-950/80 backdrop-blur-sm rounded-2xl flex items-center justify-center z-30 pointer-events-none border-2 border-dashed border-sky-400">
-            <div className="flex items-center space-x-2 text-sky-300 font-semibold text-xs animate-bounce">
+            <div className="flex items-center space-x-2 text-sky-300 font-semibold text-xs">
               <Paperclip className="w-4 h-4" />
               <span>{currentLang === 'vi' ? 'Thả tệp vào đây để thêm vào ngữ cảnh hội thoại' : 'Drop files here to attach to conversation context'}</span>
             </div>
           </div>
         )}
 
-        {/* Pinned Context Chips & Attached Image */}
-        {(pinnedFiles.length > 0 || attachedImage) && (
+        {/* Pinned Context Chips, Attached Image & Smart Code Snippets */}
+        {(pinnedFiles.length > 0 || attachedImage || snippets.length > 0) && (
           <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider shrink-0 mr-1">
-              {currentLang === 'vi' ? 'Tệp đính kèm:' : 'Attached Context:'}
+              {currentLang === 'vi' ? 'Đính kèm:' : 'Attachments:'}
             </span>
+            {snippets.map((snip) => (
+              <span
+                key={snip.id}
+                className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono shrink-0 shadow-sm"
+              >
+                <Code2 className="w-3 h-3 text-indigo-400" />
+                <span className="font-semibold uppercase text-[10px]">{snip.language}</span>
+                <span className="text-[10px] text-indigo-400">({snip.lineCount} dòng)</span>
+                <button
+                  type="button"
+                  onClick={() => setViewingSnippetId(viewingSnippetId === snip.id ? null : snip.id)}
+                  className="hover:text-white p-0.5"
+                  title={currentLang === 'vi' ? 'Xem trước / Thu gọn' : 'Preview / Collapse'}
+                >
+                  <Eye className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSnippets((prev) => prev.filter((s) => s.id !== snip.id));
+                    if (viewingSnippetId === snip.id) setViewingSnippetId(null);
+                  }}
+                  className="hover:text-red-400 p-0.5 font-bold"
+                  title={currentLang === 'vi' ? 'Xóa đoạn mã' : 'Remove snippet'}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
             {attachedImage && (
-              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[11px] font-mono shrink-0 shadow-sm animate-pulse-subtle">
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[11px] font-mono shrink-0 shadow-sm">
                 <img
                   src={attachedImage.dataUrl}
                   alt={attachedImage.name}
@@ -557,6 +641,31 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             ))}
           </div>
         )}
+
+        {/* Snippet Preview Drawer */}
+        {viewingSnippetId && (() => {
+          const snip = snippets.find((s) => s.id === viewingSnippetId);
+          if (!snip) return null;
+          return (
+            <div className="p-2.5 rounded-xl bg-black/60 border border-indigo-500/40 text-xs font-mono max-h-48 overflow-y-auto space-y-1 select-text">
+              <div className="flex items-center justify-between text-[10px] text-indigo-400 pb-1 border-b border-white/10">
+                <span className="font-bold uppercase">
+                  {snip.language} ({snip.lineCount} dòng)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setViewingSnippetId(null)}
+                  className="text-gray-400 hover:text-white text-xs"
+                >
+                  Đóng ✕
+                </button>
+              </div>
+              <pre className="text-gray-200 whitespace-pre overflow-x-auto text-[11px] leading-relaxed">
+                {snip.code}
+              </pre>
+            </div>
+          );
+        })()}
 
         {/* Text Input with dynamic auto-growing height */}
         <textarea
@@ -679,7 +788,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </button>
 
                 {showProviderMenu && (
-                  <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-1.5 space-y-1 animate-slide-up backdrop-blur-xl">
+                  <div className="absolute bottom-full right-0 mb-2 w-64 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-1.5 space-y-1 backdrop-blur-xl">
                     <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 border-b border-[#30363d] pb-1">
                       {currentLang === 'vi' ? 'Nhà cung cấp suy luận' : 'Inference Provider'}
                     </div>
@@ -734,7 +843,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </button>
 
                 {showModelMenu && (
-                  <div className="absolute bottom-full right-0 mb-2 w-80 sm:w-96 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1.5 animate-slide-up backdrop-blur-xl">
+                  <div className="absolute bottom-full right-0 mb-2 w-80 sm:w-96 bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl z-50 p-2 space-y-1.5 backdrop-blur-xl">
                     <div className="relative">
                       <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input

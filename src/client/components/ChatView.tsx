@@ -64,6 +64,36 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
   const isUserScrolledUp = useRef(false);
   const currentLang = lang || getLanguage();
   const tr = propT || dictionaries[currentLang];
+  const [isDragOverChat, setIsDragOverChat] = React.useState(false);
+
+  const PAGE_SIZE = 35;
+  const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+
+  // Reset pagination window when active session changes
+  React.useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [activeSession?.id]);
+
+  const hasOlderMessages = messages.length > visibleCount;
+  const visibleMessages = React.useMemo(() => {
+    if (messages.length <= visibleCount) return messages;
+    return messages.slice(messages.length - visibleCount);
+  }, [messages, visibleCount]);
+
+  const handleLoadOlder = () => {
+    if (!scrollRef.current) return;
+    const prevScrollHeight = scrollRef.current.scrollHeight;
+    const prevScrollTop = scrollRef.current.scrollTop;
+
+    setVisibleCount((prev) => Math.min(messages.length, prev + PAGE_SIZE));
+
+    requestAnimationFrame(() => {
+      if (scrollRef.current) {
+        const heightDiff = scrollRef.current.scrollHeight - prevScrollHeight;
+        scrollRef.current.scrollTop = prevScrollTop + heightDiff;
+      }
+    });
+  };
 
   const handleScroll = () => {
     if (!scrollRef.current) return;
@@ -71,9 +101,22 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     // Only lock to bottom if user is within 120px of bottom; if user scrolled up, keep their position
     isUserScrolledUp.current = distanceFromBottom > 120;
+
+    // Infinite scroll up trigger
+    if (el.scrollTop < 60 && hasOlderMessages) {
+      handleLoadOlder();
+    }
   };
 
-  useEffect(() => {
+  // Instant scroll on session switch - runs before paint (zero visual bounce)
+  React.useLayoutEffect(() => {
+    if (!scrollRef.current) return;
+    isUserScrolledUp.current = false;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [activeSession?.id]);
+
+  // Keep pinned to bottom during message streaming / updates unless user scrolled up
+  React.useLayoutEffect(() => {
     if (!scrollRef.current) return;
     const el = scrollRef.current;
     const lastMessage = messages[messages.length - 1];
@@ -85,14 +128,9 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
 
     // Only auto-scroll down if user is NOT scrolling up to read previous content
     if (!isUserScrolledUp.current) {
-      const id = requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-      return () => cancelAnimationFrame(id);
+      el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
-
-  const [isDragOverChat, setIsDragOverChat] = React.useState(false);
 
   const handleChatDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -181,9 +219,9 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
       {/* Messages Scroll Area */}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
-          <div className="min-h-full flex flex-col items-center justify-center p-8 max-w-2xl mx-auto space-y-4 animate-fade-in text-center">
+          <div className="min-h-full flex flex-col items-center justify-center p-8 max-w-2xl mx-auto space-y-4 text-center">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500/20 to-indigo-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 shadow-xl shadow-sky-500/10">
-              <Sparkles className="w-6 h-6 animate-pulse-subtle" />
+              <Sparkles className="w-6 h-6" />
             </div>
             <div className="space-y-1.5">
               <h1 className="text-2xl font-bold tracking-tight text-white">
@@ -195,8 +233,19 @@ export const ChatView: React.FC<ChatViewProps> = React.memo(({
             </div>
           </div>
         ) : (
-          <div className="max-w-4xl mx-auto w-full pt-6 pb-6 px-4 space-y-4">
-            {messages.map((msg) => (
+          <div key={activeSession.id} className="max-w-4xl mx-auto w-full pt-6 pb-6 px-4 space-y-4">
+            {hasOlderMessages && (
+              <div className="flex justify-center pb-2">
+                <button
+                  type="button"
+                  onClick={handleLoadOlder}
+                  className="px-3.5 py-1 rounded-full bg-[#161b22] hover:bg-[#21262d] border border-[#30363d] text-gray-400 hover:text-white text-xs font-mono transition-colors shadow-sm"
+                >
+                  ↑ {currentLang === 'vi' ? 'Tải thêm tin nhắn cũ hơn' : 'Load older messages'} ({messages.length - visibleCount})
+                </button>
+              </div>
+            )}
+            {visibleMessages.map((msg) => (
               <ChatMessageItem
                 key={msg.id}
                 message={msg}

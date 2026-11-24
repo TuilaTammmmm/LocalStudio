@@ -11,35 +11,19 @@ export class SkillsScanner {
   public static detectGlobalSkillDirectories(): string[] {
     const home = os.homedir();
     const candidateRoots = [
-      path.join(home, '.gemini', 'config', 'skills'),
-      path.join(home, '.gemini', 'config', 'plugins'),
-      path.join(home, '.gemini', 'antigravity', 'builtin', 'skills'),
-      path.join(home, '.gemini', 'skills'),
+      path.join(home, 'LocalAI', 'skills'),
+      path.join(home, '.localai', 'skills'),
       path.join(home, '.skills'),
-      path.join(home, '.config', 'skills'),
-      path.join(home, '.cursor', 'skills'),
       path.resolve(process.cwd(), '.skills'),
+      path.resolve(process.cwd(), 'skills'),
+      path.join(home, '.cursor', 'skills'),
     ];
 
     const discoveredDirs: string[] = [];
 
     for (const root of candidateRoots) {
       if (!fs.existsSync(root)) continue;
-
       discoveredDirs.push(root);
-
-      // If it's a plugins directory, look for plugin/skills subdirectories
-      try {
-        const entries = fs.readdirSync(root, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            const pluginSkillDir = path.join(root, entry.name, 'skills');
-            if (fs.existsSync(pluginSkillDir)) {
-              discoveredDirs.push(pluginSkillDir);
-            }
-          }
-        }
-      } catch {}
     }
 
     return Array.from(new Set(discoveredDirs));

@@ -141,9 +141,24 @@ function checkPortListening(port: number, timeoutMs = 400): Promise<boolean> {
 }
 
 async function startInternalBackend() {
-  const isRunning = await checkPortListening(BACKEND_PORT);
+  const isRunning = await checkPortListening(BACKEND_PORT, 1000);
   if (isRunning) {
     console.log(`[Electron] Backend already listening on port ${BACKEND_PORT}.`);
+    return;
+  }
+
+  // In development mode, the backend is managed by `tsx watch src/index.ts`.
+  // Wait for it rather than killing it with freePort or colliding runtimes.
+  if (isDev) {
+    console.log(`[Electron] Dev mode: Waiting for external backend on port ${BACKEND_PORT}...`);
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (await checkPortListening(BACKEND_PORT, 800)) {
+        console.log(`[Electron] Dev backend connected successfully on port ${BACKEND_PORT}.`);
+        return;
+      }
+    }
+    console.warn(`[Electron] Warning: Dev backend on port ${BACKEND_PORT} not ready yet.`);
     return;
   }
 
